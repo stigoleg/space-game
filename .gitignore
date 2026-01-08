@@ -1,0 +1,22 @@
+# Environment variables file containing secrets
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+stellar-siege
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Go build cache
+.cache/
