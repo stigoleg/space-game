@@ -451,6 +451,15 @@ func (g *Game) updatePlaying() {
 		g.state = StateGameOver
 		g.nameInputMode = true
 		g.sound.PlaySound(systems.SoundGameOver)
+
+		// Refresh online leaderboard scores for qualification check
+		if g.onlineLeaderboard != nil {
+			go func() {
+				if scores, err := g.onlineLeaderboard.GetTopScores(100); err == nil {
+					g.onlineScores = scores
+				}
+			}()
+		}
 	}
 }
 
@@ -483,26 +492,18 @@ func (g *Game) updateGameOver() {
 		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) && len(g.playerName) > 0 {
 			g.leaderboard.AddEntry(g.playerName, g.score, g.wave)
 			g.nameInputMode = false
-			g.submitScorePrompt = true // Prompt to submit online
+
+			// Automatically submit to online leaderboard if score qualifies
+			g.autoSubmitScoreIfQualified()
+			g.scoreSubmitted = true // Mark as submitted (or attempted)
 		}
 	} else {
-		// Show option to submit score online
-		if g.submitScorePrompt && !g.scoreSubmitted && g.playerName != "" {
-			if inpututil.IsKeyJustPressed(ebiten.KeyY) {
-				// Submit to online leaderboard
-				g.submitScoreOnline()
-				g.scoreSubmitted = true
-			} else if inpututil.IsKeyJustPressed(ebiten.KeyN) {
-				// Skip online submission
-				g.scoreSubmitted = true
-			}
-		} else {
-			if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-				g.startGame()
-			}
-			if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyQ) {
-				g.state = StateMenu
-			}
+		// Game over controls
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+			g.startGame()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyQ) {
+			g.state = StateMenu
 		}
 	}
 }
@@ -532,6 +533,44 @@ func (g *Game) submitScoreOnline() {
 		// Clear cache to force refresh on next leaderboard view
 		g.onlineLeaderboard.ClearCache()
 	}()
+}
+
+// autoSubmitScoreIfQualified automatically submits score if it's high enough
+func (g *Game) autoSubmitScoreIfQualified() {
+	if g.onlineLeaderboard == nil || g.playerName == "" {
+		return
+	}
+
+	// Define minimum thresholds for auto-submission
+	const minScore = 1000 // Minimum score to consider
+	const minWave = 3     // Minimum wave reached
+
+	// Check if score meets minimum threshold
+	if g.score < minScore || g.wave < minWave {
+		return // Score too low to submit
+	}
+
+	// Check if score would make it into top 100
+	// If we have cached scores, check against them
+	if len(g.onlineScores) > 0 {
+		// If we have less than 100 scores, always submit
+		if len(g.onlineScores) < 100 {
+			g.submitScoreOnline()
+			return
+		}
+
+		// Check if our score beats the 100th place
+		if len(g.onlineScores) >= 100 {
+			lowestScore := g.onlineScores[99].Score
+			if g.score > lowestScore {
+				g.submitScoreOnline()
+				return
+			}
+		}
+	} else {
+		// No cached scores - submit if meets minimum threshold
+		g.submitScoreOnline()
+	}
 }
 
 // drawOnlineLeaderboard renders the online leaderboard on screen
@@ -1249,17 +1288,6 @@ func (g *Game) drawGameOverOverlay(screen *ebiten.Image) {
 		nameDisplay := g.playerName + "_"
 		systems.DrawTextCentered(screen, nameDisplay, ScreenWidth/2, 360, 3, color.RGBA{100, 255, 100, 255})
 		systems.DrawTextCentered(screen, "Press ENTER to confirm", ScreenWidth/2, 420, 1.5, color.RGBA{150, 150, 150, 255})
-	} else if g.submitScorePrompt && !g.scoreSubmitted && g.playerName != "" {
-		// Prompt to submit score to online leaderboard
-		systems.DrawTextCentered(screen, "Submit to Online Leaderboard?", ScreenWidth/2, 320, 2.5, color.RGBA{100, 200, 255, 255})
-		systems.DrawTextCentered(screen, "Player: "+g.playerName, ScreenWidth/2, 370, 2, color.RGBA{200, 255, 200, 255})
-		systems.DrawTextCentered(screen, "Score: "+systems.FormatNumber(g.score), ScreenWidth/2, 410, 2, color.RGBA{255, 255, 100, 255})
-
-		if g.onlineLeaderboard != nil && g.onlineLeaderboard.GitHubToken != "" {
-			systems.DrawTextCentered(screen, "Press Y to submit  |  Press N to skip", ScreenWidth/2, 480, 1.5, color.RGBA{150, 200, 150, 255})
-		} else {
-			systems.DrawTextCentered(screen, "Online leaderboard not configured", ScreenWidth/2, 480, 1.5, color.RGBA{200, 150, 100, 255})
-		}
 	} else {
 		// Show leaderboard (local)
 		g.leaderboard.Draw(screen, ScreenWidth/2, 320, g.score)

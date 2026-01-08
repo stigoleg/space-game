@@ -194,27 +194,52 @@ func (p *Player) Shoot() []*Projectile {
 
 	var projectiles []*Projectile
 
+	// Different colors for different weapon levels
+	var mainColor, glowColor color.RGBA
 	switch p.WeaponLevel {
 	case 1:
-		projectiles = append(projectiles, NewProjectile(p.X, p.Y-p.Radius, 0, -12, true, 10))
+		// Level 1: Cyan (basic)
+		mainColor = color.RGBA{0, 255, 255, 255}
+		glowColor = color.RGBA{0, 200, 255, 180}
 	case 2:
-		projectiles = append(projectiles, NewProjectile(p.X-10, p.Y-p.Radius, 0, -12, true, 10))
-		projectiles = append(projectiles, NewProjectile(p.X+10, p.Y-p.Radius, 0, -12, true, 10))
+		// Level 2: Green (improved)
+		mainColor = color.RGBA{0, 255, 136, 255}
+		glowColor = color.RGBA{50, 255, 150, 180}
 	case 3:
-		projectiles = append(projectiles, NewProjectile(p.X, p.Y-p.Radius, 0, -12, true, 12))
-		projectiles = append(projectiles, NewProjectile(p.X-15, p.Y-p.Radius+5, -1, -11, true, 10))
-		projectiles = append(projectiles, NewProjectile(p.X+15, p.Y-p.Radius+5, 1, -11, true, 10))
+		// Level 3: Yellow (advanced)
+		mainColor = color.RGBA{255, 255, 0, 255}
+		glowColor = color.RGBA{255, 220, 50, 180}
 	case 4:
-		projectiles = append(projectiles, NewProjectile(p.X-8, p.Y-p.Radius, 0, -13, true, 15))
-		projectiles = append(projectiles, NewProjectile(p.X+8, p.Y-p.Radius, 0, -13, true, 15))
-		projectiles = append(projectiles, NewProjectile(p.X-20, p.Y-p.Radius+5, -2, -11, true, 12))
-		projectiles = append(projectiles, NewProjectile(p.X+20, p.Y-p.Radius+5, 2, -11, true, 12))
+		// Level 4: Orange (superior)
+		mainColor = color.RGBA{255, 136, 0, 255}
+		glowColor = color.RGBA{255, 180, 50, 180}
 	default: // Level 5+
-		projectiles = append(projectiles, NewProjectile(p.X, p.Y-p.Radius, 0, -14, true, 20))
-		projectiles = append(projectiles, NewProjectile(p.X-12, p.Y-p.Radius, 0, -13, true, 15))
-		projectiles = append(projectiles, NewProjectile(p.X+12, p.Y-p.Radius, 0, -13, true, 15))
-		projectiles = append(projectiles, NewProjectile(p.X-25, p.Y-p.Radius+5, -2.5, -11, true, 12))
-		projectiles = append(projectiles, NewProjectile(p.X+25, p.Y-p.Radius+5, 2.5, -11, true, 12))
+		// Level 5: Purple (master)
+		mainColor = color.RGBA{170, 0, 255, 255}
+		glowColor = color.RGBA{200, 50, 255, 180}
+	}
+
+	switch p.WeaponLevel {
+	case 1:
+		projectiles = append(projectiles, NewProjectileWithColor(p.X, p.Y-p.Radius, 0, -12, true, 10, mainColor, glowColor))
+	case 2:
+		projectiles = append(projectiles, NewProjectileWithColor(p.X-10, p.Y-p.Radius, 0, -12, true, 10, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X+10, p.Y-p.Radius, 0, -12, true, 10, mainColor, glowColor))
+	case 3:
+		projectiles = append(projectiles, NewProjectileWithColor(p.X, p.Y-p.Radius, 0, -12, true, 12, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X-15, p.Y-p.Radius+5, -1, -11, true, 10, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X+15, p.Y-p.Radius+5, 1, -11, true, 10, mainColor, glowColor))
+	case 4:
+		projectiles = append(projectiles, NewProjectileWithColor(p.X-8, p.Y-p.Radius, 0, -13, true, 15, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X+8, p.Y-p.Radius, 0, -13, true, 15, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X-20, p.Y-p.Radius+5, -2, -11, true, 12, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X+20, p.Y-p.Radius+5, 2, -11, true, 12, mainColor, glowColor))
+	default: // Level 5+
+		projectiles = append(projectiles, NewProjectileWithColor(p.X, p.Y-p.Radius, 0, -14, true, 20, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X-12, p.Y-p.Radius, 0, -13, true, 15, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X+12, p.Y-p.Radius, 0, -13, true, 15, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X-25, p.Y-p.Radius+5, -2.5, -11, true, 12, mainColor, glowColor))
+		projectiles = append(projectiles, NewProjectileWithColor(p.X+25, p.Y-p.Radius+5, 2.5, -11, true, 12, mainColor, glowColor))
 	}
 
 	return projectiles

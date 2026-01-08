@@ -15,19 +15,50 @@ type Projectile struct {
 	Friendly   bool // true = player's projectile
 	Active     bool
 	Trail      []struct{ X, Y float64 }
+	Color      color.RGBA // Custom color for weapon types
+	GlowColor  color.RGBA // Custom glow color
 }
 
 func NewProjectile(x, y, velX, velY float64, friendly bool, damage int) *Projectile {
+	// Default colors (blue for friendly, red for enemy)
+	var mainColor, glowColor color.RGBA
+	if friendly {
+		mainColor = color.RGBA{100, 200, 255, 255}
+		glowColor = color.RGBA{50, 150, 255, 180}
+	} else {
+		mainColor = color.RGBA{255, 100, 100, 255}
+		glowColor = color.RGBA{255, 50, 50, 180}
+	}
+
 	return &Projectile{
-		X:        x,
-		Y:        y,
-		VelX:     velX,
-		VelY:     velY,
-		Radius:   7, // Increased from 5 to 7
-		Damage:   damage,
-		Friendly: friendly,
-		Active:   true,
-		Trail:    make([]struct{ X, Y float64 }, 0, 8), // Increased from 5 to 8
+		X:         x,
+		Y:         y,
+		VelX:      velX,
+		VelY:      velY,
+		Radius:    7, // Increased from 5 to 7
+		Damage:    damage,
+		Friendly:  friendly,
+		Active:    true,
+		Trail:     make([]struct{ X, Y float64 }, 0, 8), // Increased from 5 to 8
+		Color:     mainColor,
+		GlowColor: glowColor,
+	}
+}
+
+// NewProjectileWithColor creates a projectile with custom colors (for weapon variety)
+func NewProjectileWithColor(x, y, velX, velY float64, friendly bool, damage int, mainColor, glowColor color.RGBA) *Projectile {
+	return &Projectile{
+		X:         x,
+		Y:         y,
+		VelX:      velX,
+		VelY:      velY,
+		Radius:    7,
+		Damage:    damage,
+		Friendly:  friendly,
+		Active:    true,
+		Trail:     make([]struct{ X, Y float64 }, 0, 8),
+		Color:     mainColor,
+		GlowColor: glowColor,
 	}
 }
 
@@ -57,15 +88,9 @@ func (p *Projectile) Draw(screen *ebiten.Image, shakeX, shakeY float64, sprite *
 }
 
 func (p *Projectile) drawSpriteBased(screen *ebiten.Image, x, y float32, sprite *ebiten.Image, shakeX, shakeY float64) {
-	var mainColor, glowColor color.RGBA
-
-	if p.Friendly {
-		mainColor = color.RGBA{100, 200, 255, 255}
-		glowColor = color.RGBA{50, 150, 255, 180}
-	} else {
-		mainColor = color.RGBA{255, 100, 100, 255}
-		glowColor = color.RGBA{255, 50, 50, 180}
-	}
+	// Use custom colors from the projectile
+	mainColor := p.Color
+	glowColor := p.GlowColor
 
 	// Draw large outer glow FIRST (background)
 	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)+8, color.RGBA{glowColor.R, glowColor.G, glowColor.B, 40}, true)
@@ -101,15 +126,9 @@ func (p *Projectile) drawSpriteBased(screen *ebiten.Image, x, y float32, sprite 
 }
 
 func (p *Projectile) drawProcedural(screen *ebiten.Image, x, y float32, shakeX, shakeY float64) {
-	var mainColor, glowColor color.RGBA
-
-	if p.Friendly {
-		mainColor = color.RGBA{100, 200, 255, 255}
-		glowColor = color.RGBA{50, 150, 255, 180}
-	} else {
-		mainColor = color.RGBA{255, 100, 100, 255}
-		glowColor = color.RGBA{255, 50, 50, 180}
-	}
+	// Use custom colors from the projectile
+	mainColor := p.Color
+	glowColor := p.GlowColor
 
 	// Draw enhanced trail with glow
 	for i, t := range p.Trail {

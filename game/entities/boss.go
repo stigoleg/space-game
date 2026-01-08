@@ -45,6 +45,10 @@ type Boss struct {
 	SpecialTimer  float64 // Timer for special attack cooldown
 	SpecialPhase  int     // Current special attack phase
 	MinionsActive int     // Number of active minions
+
+	// Telegraph system
+	TelegraphTimer  float64 // Timer for pre-attack warning
+	TelegraphActive bool    // Is telegraph warning active
 }
 
 func NewBoss(screenWidth int, bossLevel int) *Boss {
@@ -83,22 +87,24 @@ func NewBoss(screenWidth int, bossLevel int) *Boss {
 	}
 
 	return &Boss{
-		X:             float64(screenWidth) / 2,
-		Y:             -100,
-		Radius:        60,
-		Health:        health,
-		MaxHealth:     health,
-		Points:        10000 * bossLevel,
-		Active:        true,
-		Phase:         BossPhaseEntering,
-		EntryY:        120,
-		BossLevel:     bossLevel,
-		Speed:         speedMult,
-		AttackRate:    attackRateMult,
-		Damage:        baseDamage,
-		PatternCount:  patternCount,
-		SpecialTimer:  0,
-		MinionsActive: 0,
+		X:               float64(screenWidth) / 2,
+		Y:               -100,
+		Radius:          60,
+		Health:          health,
+		MaxHealth:       health,
+		Points:          10000 * bossLevel,
+		Active:          true,
+		Phase:           BossPhaseEntering,
+		EntryY:          80, // Changed from 120 to 80 - starts attacking earlier
+		BossLevel:       bossLevel,
+		Speed:           speedMult,
+		AttackRate:      attackRateMult,
+		Damage:          baseDamage,
+		PatternCount:    patternCount,
+		SpecialTimer:    0,
+		MinionsActive:   0,
+		TelegraphTimer:  0,
+		TelegraphActive: false,
 	}
 }
 
@@ -110,12 +116,33 @@ func (b *Boss) Update(playerX, playerY float64, screenWidth, screenHeight int) [
 	case BossPhaseEntering:
 		// Move into position
 		b.Y += 1
+
+		// Check proximity to player - if player is close, start attacking immediately
+		distanceToPlayer := math.Abs(b.X - playerX)
+		const proximityRange = 200.0 // Distance to trigger immediate attack
+
 		if b.Y >= b.EntryY {
+			// Reached target position
 			b.Y = b.EntryY
 			b.Phase = BossPhaseAttacking
+			b.TelegraphTimer = 0.5 // 0.5 second telegraph warning
+			b.TelegraphActive = true
+		} else if b.Y >= 0 && distanceToPlayer < proximityRange {
+			// Player is close while we're still entering - switch to attacking early
+			b.Phase = BossPhaseAttacking
+			b.TelegraphTimer = 0.3 // Shorter telegraph if player gets too close
+			b.TelegraphActive = true
 		}
 
 	case BossPhaseAttacking, BossPhaseRage, BossPhaseSpecialAttack:
+		// Handle telegraph timer
+		if b.TelegraphActive {
+			b.TelegraphTimer -= 1.0 / 60.0
+			if b.TelegraphTimer <= 0 {
+				b.TelegraphActive = false
+			}
+		}
+
 		// Horizontal movement - track player loosely (scaled by boss level)
 		targetX := playerX
 		dx := targetX - b.X
@@ -135,21 +162,24 @@ func (b *Boss) Update(playerX, playerY float64, screenWidth, screenHeight int) [
 		}
 
 		// Attack patterns with difficulty scaling
-		b.AttackTimer += 1.0 / 60.0
+		// Don't attack during telegraph warning
+		if !b.TelegraphActive {
+			b.AttackTimer += 1.0 / 60.0
 
-		// Base attack interval decreases with boss level
-		attackInterval := 1.5 / b.AttackRate
-		if b.Phase == BossPhaseRage {
-			attackInterval *= 0.6 // Much faster in rage mode
-		}
-		if b.Phase == BossPhaseSpecialAttack {
-			attackInterval *= 0.5 // Even faster in special attack
-		}
+			// Base attack interval decreases with boss level
+			attackInterval := 1.0 / b.AttackRate // Changed from 1.5 to 1.0 for faster initial attacks
+			if b.Phase == BossPhaseRage {
+				attackInterval *= 0.6 // Much faster in rage mode
+			}
+			if b.Phase == BossPhaseSpecialAttack {
+				attackInterval *= 0.5 // Even faster in special attack
+			}
 
-		if b.AttackTimer >= attackInterval {
-			b.AttackTimer = 0
-			b.AttackPattern = (b.AttackPattern + 1) % b.PatternCount
-			projectiles = b.executeAttack(playerX, playerY)
+			if b.AttackTimer >= attackInterval {
+				b.AttackTimer = 0
+				b.AttackPattern = (b.AttackPattern + 1) % b.PatternCount
+				projectiles = b.executeAttack(playerX, playerY)
+			}
 		}
 
 		// Phase transitions based on health percentage
@@ -422,6 +452,21 @@ func (b *Boss) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 
 	// Highlight (3D effect)
 	vector.DrawFilledCircle(screen, x-radius*0.3, y-radius*0.3, radius*0.25, color.RGBA{mainColor.R + 50, mainColor.G + 50, mainColor.B + 50, 200}, true)
+
+	// Telegraph warning effect - pulsing red rings before first attack
+	if b.TelegraphActive {
+		telegraphIntensity := float32(b.TelegraphTimer / 0.5) // Fade as timer decreases
+		if telegraphIntensity > 1.0 {
+			telegraphIntensity = 1.0
+		}
+		telegraphAlpha := uint8(180 * telegraphIntensity)
+		telegraphPulse := float32(1.0 + 0.3*math.Sin(b.AnimTimer*12))
+
+		// Draw warning rings
+		telegraphColor := color.RGBA{255, 220, 0, telegraphAlpha} // Yellow warning
+		vector.StrokeCircle(screen, x, y, radius+20*telegraphPulse, 3, telegraphColor, true)
+		vector.StrokeCircle(screen, x, y, radius+30*telegraphPulse, 2, color.RGBA{255, 180, 0, telegraphAlpha / 2}, true)
+	}
 
 	// Shield effect
 	if b.ShieldUp {
