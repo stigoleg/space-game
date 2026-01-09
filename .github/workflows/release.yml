@@ -1,0 +1,322 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build for ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
+            goos: linux
+            goarch: amd64
+            output: stellar-siege
+            artifact: stellar-siege-linux-amd64
+            
+          # macOS Intel
+          - os: macos-latest
+            platform: darwin
+            arch: amd64
+            goos: darwin
+            goarch: amd64
+            output: stellar-siege
+            artifact: stellar-siege-darwin-amd64
+            
+          # macOS Apple Silicon
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+            goos: darwin
+            goarch: arm64
+            output: stellar-siege
+            artifact: stellar-siege-darwin-arm64
+            
+          # Windows
+          - os: windows-latest
+            platform: windows
+            arch: amd64
+            goos: windows
+            goarch: amd64
+            output: stellar-siege.exe
+            artifact: stellar-siege-windows-amd64
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: true
+      
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dev libgl1-mesa-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libxxf86vm-dev libasound2-dev pkg-config
+      
+      - name: Create .env file from secrets
+        shell: bash
+        run: |
+          cat > .env << EOF
+          GIST_ID=${{ secrets.GIST_ID }}
+          GITHUB_TOKEN=${{ secrets.GH_GIST_TOKEN }}
+          GIST_ENABLED=true
+          EOF
+        
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+        run: |
+          go build -ldflags="-s -w" -o ${{ matrix.output }} .
+      
+      - name: Create macOS .app bundle (Intel)
+        if: matrix.platform == 'darwin' && matrix.arch == 'amd64'
+        run: |
+          APP_NAME="Stellar Siege"
+          BINARY_NAME="stellar-siege"
+          BUNDLE_ID="com.stellarsiege.game"
+          VERSION="${GITHUB_REF#refs/tags/}"
+          
+          APP_DIR="$APP_NAME.app/Contents"
+          mkdir -p "$APP_DIR/MacOS"
+          mkdir -p "$APP_DIR/Resources/assets"
+          mkdir -p "$APP_DIR/Resources/config"
+          
+          # Copy binary
+          cp "$BINARY_NAME" "$APP_DIR/MacOS/"
+          
+          # Copy assets
+          if [ -d "assets" ]; then
+            cp -r assets/* "$APP_DIR/Resources/assets/" 2>/dev/null || true
+          fi
+          
+          if [ -d "config" ]; then
+            cp -r config/* "$APP_DIR/Resources/config/" 2>/dev/null || true
+          fi
+          
+          # Create Info.plist
+          cp build_resources/Info.plist "$APP_DIR/" || cat > "$APP_DIR/Info.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>$BINARY_NAME</string>
+              <key>CFBundleName</key>
+              <string>$APP_NAME</string>
+              <key>CFBundleDisplayName</key>
+              <string>$APP_NAME</string>
+              <key>CFBundleIdentifier</key>
+              <string>$BUNDLE_ID</string>
+              <key>CFBundleVersion</key>
+              <string>$VERSION</string>
+              <key>CFBundleShortVersionString</key>
+              <string>$VERSION</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleSignature</key>
+              <string>STSG</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.15</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>LSApplicationCategoryType</key>
+              <string>public.app-category.games</string>
+          </dict>
+          </plist>
+          EOF
+          
+          # Create PkgInfo
+          echo "APPLSTSG" > "$APP_DIR/PkgInfo"
+          
+          # Make binary executable
+          chmod +x "$APP_DIR/MacOS/$BINARY_NAME"
+          
+          # Create DMG
+          hdiutil create -volname "$APP_NAME" -srcfolder "$APP_NAME.app" -ov -format UDZO "Stellar-Siege-macOS-Intel.dmg"
+      
+      - name: Create macOS .app bundle (Apple Silicon)
+        if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
+        run: |
+          APP_NAME="Stellar Siege"
+          BINARY_NAME="stellar-siege"
+          BUNDLE_ID="com.stellarsiege.game"
+          VERSION="${GITHUB_REF#refs/tags/}"
+          
+          APP_DIR="$APP_NAME.app/Contents"
+          mkdir -p "$APP_DIR/MacOS"
+          mkdir -p "$APP_DIR/Resources/assets"
+          mkdir -p "$APP_DIR/Resources/config"
+          
+          # Copy binary
+          cp "$BINARY_NAME" "$APP_DIR/MacOS/"
+          
+          # Copy assets
+          if [ -d "assets" ]; then
+            cp -r assets/* "$APP_DIR/Resources/assets/" 2>/dev/null || true
+          fi
+          
+          if [ -d "config" ]; then
+            cp -r config/* "$APP_DIR/Resources/config/" 2>/dev/null || true
+          fi
+          
+          # Create Info.plist
+          cp build_resources/Info.plist "$APP_DIR/" || cat > "$APP_DIR/Info.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>$BINARY_NAME</string>
+              <key>CFBundleName</key>
+              <string>$APP_NAME</string>
+              <key>CFBundleDisplayName</key>
+              <string>$APP_NAME</string>
+              <key>CFBundleIdentifier</key>
+              <string>$BUNDLE_ID</string>
+              <key>CFBundleVersion</key>
+              <string>$VERSION</string>
+              <key>CFBundleShortVersionString</key>
+              <string>$VERSION</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleSignature</key>
+              <string>STSG</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>11.0</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>LSApplicationCategoryType</key>
+              <string>public.app-category.games</string>
+          </dict>
+          </plist>
+          EOF
+          
+          # Create PkgInfo
+          echo "APPLSTSG" > "$APP_DIR/PkgInfo"
+          
+          # Make binary executable
+          chmod +x "$APP_DIR/MacOS/$BINARY_NAME"
+          
+          # Create DMG
+          hdiutil create -volname "$APP_NAME" -srcfolder "$APP_NAME.app" -ov -format UDZO "Stellar-Siege-macOS-AppleSilicon.dmg"
+      
+      - name: Package Linux release
+        if: matrix.platform == 'linux'
+        run: |
+          mkdir -p stellar-siege-linux
+          cp stellar-siege stellar-siege-linux/
+          cp -r assets stellar-siege-linux/ 2>/dev/null || true
+          cp -r config stellar-siege-linux/ 2>/dev/null || true
+          cp .env.example stellar-siege-linux/.env.example
+          tar -czf stellar-siege-linux-amd64.tar.gz stellar-siege-linux
+      
+      - name: Package Windows release
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: |
+          mkdir -p stellar-siege-windows
+          cp stellar-siege.exe stellar-siege-windows/
+          cp -r assets stellar-siege-windows/ 2>/dev/null || true
+          cp -r config stellar-siege-windows/ 2>/dev/null || true
+          cp .env.example stellar-siege-windows/.env.example
+          7z a -tzip stellar-siege-windows-amd64.zip stellar-siege-windows
+      
+      - name: Upload artifacts - macOS Intel
+        if: matrix.platform == 'darwin' && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: Stellar-Siege-macOS-Intel.dmg
+          retention-days: 5
+      
+      - name: Upload artifacts - macOS Apple Silicon
+        if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: Stellar-Siege-macOS-AppleSilicon.dmg
+          retention-days: 5
+      
+      - name: Upload artifacts - Linux
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: stellar-siege-linux-amd64.tar.gz
+          retention-days: 5
+      
+      - name: Upload artifacts - Windows
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: stellar-siege-windows-amd64.zip
+          retention-days: 5
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/stellar-siege-darwin-amd64/Stellar-Siege-macOS-Intel.dmg
+            artifacts/stellar-siege-darwin-arm64/Stellar-Siege-macOS-AppleSilicon.dmg
+            artifacts/stellar-siege-linux-amd64/stellar-siege-linux-amd64.tar.gz
+            artifacts/stellar-siege-windows-amd64/stellar-siege-windows-amd64.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## Stellar Siege Release
+            
+            Cross-platform builds for Linux, macOS (Intel & Apple Silicon), and Windows.
+            
+            ### Downloads:
+            - **macOS Intel**: Stellar-Siege-macOS-Intel.dmg
+            - **macOS Apple Silicon**: Stellar-Siege-macOS-AppleSilicon.dmg
+            - **Linux**: stellar-siege-linux-amd64.tar.gz
+            - **Windows**: stellar-siege-windows-amd64.zip
+            
+            ### Setup Instructions:
+            1. Download the appropriate file for your platform
+            2. Extract/mount the archive
+            3. (Optional) Configure GitHub Gist leaderboard by copying `.env.example` to `.env` and adding your credentials
+            4. Run the game and enjoy!
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
