@@ -309,3 +309,41 @@ func (p *Projectile) UpdateHoming(enemies []*Enemy) {
 	p.VelX = math.Cos(newAngle) * speed
 	p.VelY = math.Sin(newAngle) * speed
 }
+
+// Poolable interface implementation
+
+// Reset resets the projectile to default state for reuse
+func (p *Projectile) Reset() {
+	p.X = 0
+	p.Y = 0
+	p.VelX = 0
+	p.VelY = 0
+	p.Radius = 7
+	p.Damage = 0
+	p.Friendly = false
+	p.Active = false
+	p.Trail = p.Trail[:0] // Keep capacity, clear length
+	p.Color = color.RGBA{100, 200, 255, 255}
+	p.GlowColor = color.RGBA{50, 150, 255, 180}
+	p.Lifetime = 3.0
+	p.Age = 0.0
+
+	// Reset special behavior flags
+	p.Homing = false
+	p.HomingSpeed = 0
+	p.TargetEnemyIdx = -1
+	p.Chaining = false
+	p.ChainCount = 0
+	p.ChainRange = 0
+	p.Burning = false
+	p.BurnDuration = 0
+	p.BurnDamage = 0
+	p.Beam = false
+	p.BeamSource = struct{ X, Y float64 }{0, 0}
+	p.Piercing = false
+}
+
+// SetActive sets the active state of the projectile
+func (p *Projectile) SetActive(active bool) {
+	p.Active = active
+}

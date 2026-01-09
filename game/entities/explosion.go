@@ -181,3 +181,26 @@ func (e *Explosion) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 		}
 	}
 }
+
+// Poolable interface implementation
+
+// Reset resets the explosion to default state for reuse
+func (e *Explosion) Reset() {
+	e.X = 0
+	e.Y = 0
+	e.Particles = e.Particles[:0] // Keep capacity, clear length
+	e.Active = false
+	e.Timer = 0
+	e.ExpType = ExplosionStandard
+	e.BurstScale = 1.0
+}
+
+// IsActive returns whether the explosion is active
+func (e *Explosion) IsActive() bool {
+	return e.Active
+}
+
+// SetActive sets the active state of the explosion
+func (e *Explosion) SetActive(active bool) {
+	e.Active = active
+}
