@@ -296,3 +296,56 @@ func (p *Player) TakeDamage(damage int, gameTime float64) {
 	p.LastDamageTime = gameTime
 	p.InvincTimer = p.InvincibilityTime // Use difficulty-dependent invincibility time
 }
+
+// Interface implementation methods
+
+// IsActive returns whether the player is active
+func (p *Player) IsActive() bool {
+	return p.Active
+}
+
+// GetPosition returns the player's position
+func (p *Player) GetPosition() (x, y float64) {
+	return p.X, p.Y
+}
+
+// GetCollisionBounds returns the player's collision bounds
+func (p *Player) GetCollisionBounds() (x, y, radius float64) {
+	return p.X, p.Y, p.Radius
+}
+
+// GetHealth returns the player's current health
+func (p *Player) GetHealth() int {
+	return p.Health
+}
+
+// GetMaxHealth returns the player's maximum health
+func (p *Player) GetMaxHealth() int {
+	return p.MaxHealth
+}
+
+// IsDead returns whether the player is dead
+func (p *Player) IsDead() bool {
+	return p.Health <= 0
+}
+
+// GetVelocity returns the player's velocity
+func (p *Player) GetVelocity() (vx, vy float64) {
+	return p.VelX, p.VelY
+}
+
+// SetVelocity sets the player's velocity
+func (p *Player) SetVelocity(vx, vy float64) {
+	p.VelX = vx
+	p.VelY = vy
+}
+
+// GetSpeed returns the player's speed
+func (p *Player) GetSpeed() float64 {
+	return p.Speed
+}
+
+// SetSpeed sets the player's speed
+func (p *Player) SetSpeed(speed float64) {
+	p.Speed = speed
+}

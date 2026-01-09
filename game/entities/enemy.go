@@ -162,3 +162,56 @@ func (e *Enemy) TakeDamage(damage int) {
 		e.Health = 0
 	}
 }
+
+// Interface implementation methods
+
+// IsActive returns whether the enemy is active
+func (e *Enemy) IsActive() bool {
+	return e.Active
+}
+
+// GetPosition returns the enemy's position
+func (e *Enemy) GetPosition() (x, y float64) {
+	return e.X, e.Y
+}
+
+// GetCollisionBounds returns the enemy's collision bounds
+func (e *Enemy) GetCollisionBounds() (x, y, radius float64) {
+	return e.X, e.Y, e.Radius
+}
+
+// GetHealth returns the enemy's current health
+func (e *Enemy) GetHealth() int {
+	return e.Health
+}
+
+// GetMaxHealth returns the enemy's maximum health
+func (e *Enemy) GetMaxHealth() int {
+	return e.MaxHealth
+}
+
+// IsDead returns whether the enemy is dead
+func (e *Enemy) IsDead() bool {
+	return e.Health <= 0
+}
+
+// GetVelocity returns the enemy's velocity
+func (e *Enemy) GetVelocity() (vx, vy float64) {
+	return e.VelX, e.VelY
+}
+
+// SetVelocity sets the enemy's velocity
+func (e *Enemy) SetVelocity(vx, vy float64) {
+	e.VelX = vx
+	e.VelY = vy
+}
+
+// GetSpeed returns the enemy's speed
+func (e *Enemy) GetSpeed() float64 {
+	return e.Speed
+}
+
+// SetSpeed sets the enemy's speed
+func (e *Enemy) SetSpeed(speed float64) {
+	e.Speed = speed
+}

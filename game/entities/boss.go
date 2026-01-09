@@ -295,3 +295,51 @@ func (b *Boss) drawLevelIndicator(screen *ebiten.Image, x, y, radius float32) {
 func (b *Boss) IsDead() bool {
 	return b.Health <= 0 || b.Phase == BossPhaseDying
 }
+
+// Interface implementation methods
+
+// IsActive returns whether the boss is active
+func (b *Boss) IsActive() bool {
+	return b.Active
+}
+
+// GetPosition returns the boss's position
+func (b *Boss) GetPosition() (x, y float64) {
+	return b.X, b.Y
+}
+
+// GetCollisionBounds returns the boss's collision bounds
+func (b *Boss) GetCollisionBounds() (x, y, radius float64) {
+	return b.X, b.Y, b.Radius
+}
+
+// GetHealth returns the boss's current health
+func (b *Boss) GetHealth() int {
+	return b.Health
+}
+
+// GetMaxHealth returns the boss's maximum health
+func (b *Boss) GetMaxHealth() int {
+	return b.MaxHealth
+}
+
+// GetVelocity returns the boss's velocity
+func (b *Boss) GetVelocity() (vx, vy float64) {
+	return b.VelX, b.VelY
+}
+
+// SetVelocity sets the boss's velocity
+func (b *Boss) SetVelocity(vx, vy float64) {
+	b.VelX = vx
+	b.VelY = vy
+}
+
+// GetSpeed returns the boss's speed
+func (b *Boss) GetSpeed() float64 {
+	return b.Speed
+}
+
+// SetSpeed sets the boss's speed
+func (b *Boss) SetSpeed(speed float64) {
+	b.Speed = speed
+}

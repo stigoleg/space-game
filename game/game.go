@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 
+	"stellar-siege/game/di"
 	"stellar-siege/game/entities"
 	"stellar-siege/game/systems"
 
@@ -27,6 +28,9 @@ const (
 )
 
 type Game struct {
+	// Dependency injection container
+	container *di.Container
+
 	state       GameState
 	player      *entities.Player
 	enemies     []*entities.Enemy
@@ -91,9 +95,12 @@ type Game struct {
 }
 
 func NewGame() *Game {
+	// Create DI container
+	container := di.NewContainer()
+
 	g := &Game{
+		container:          container,
 		state:              StateMenu,
-		stars:              systems.NewStarField(ScreenWidth, ScreenHeight),
 		selectedDifficulty: DifficultyNormal,                  // Default to Normal difficulty
 		cameraDistance:     100.0,                             // How far back to view from
 		cameraHeight:       60.0,                              // How high to view from (for angle)
@@ -103,10 +110,41 @@ func NewGame() *Game {
 		floatingTexts:      make([]*entities.FloatingText, 0), // Initialize floating text list
 		impactEffects:      make([]*entities.ImpactEffect, 0), // Initialize impact effects list
 	}
-	g.leaderboard = systems.NewLeaderboard("data/leaderboard.json")
-	g.sound, _ = systems.NewSoundManager()
-	g.sprites = systems.NewSpriteManager()
-	g.menu = systems.NewMenu(g.sprites)
+
+	// Register services in the DI container
+
+	// Sound Manager
+	container.RegisterSingleton(di.ServiceSoundManager, func(c *di.Container) (interface{}, error) {
+		return systems.NewSoundManager()
+	})
+
+	// Sprite Manager
+	container.RegisterSingleton(di.ServiceSpriteManager, func(c *di.Container) (interface{}, error) {
+		return systems.NewSpriteManager(), nil
+	})
+
+	// Starfield
+	container.RegisterSingleton(di.ServiceStarfield, func(c *di.Container) (interface{}, error) {
+		return systems.NewStarField(ScreenWidth, ScreenHeight), nil
+	})
+
+	// Leaderboard
+	container.RegisterSingleton(di.ServiceLeaderboardManager, func(c *di.Container) (interface{}, error) {
+		return systems.NewLeaderboard("data/leaderboard.json"), nil
+	})
+
+	// Menu
+	container.RegisterSingleton(di.ServiceMenu, func(c *di.Container) (interface{}, error) {
+		sprites := c.MustResolve(di.ServiceSpriteManager).(*systems.SpriteManager)
+		return systems.NewMenu(sprites), nil
+	})
+
+	// Resolve initial services
+	g.sound = container.MustResolve(di.ServiceSoundManager).(*systems.SoundManager)
+	g.sprites = container.MustResolve(di.ServiceSpriteManager).(*systems.SpriteManager)
+	g.stars = container.MustResolve(di.ServiceStarfield).(*systems.StarField)
+	g.leaderboard = container.MustResolve(di.ServiceLeaderboardManager).(*systems.Leaderboard)
+	g.menu = container.MustResolve(di.ServiceMenu).(*systems.Menu)
 
 	// Load Gist configuration for online leaderboard from environment variables
 	gistConfig, _ := systems.LoadGistConfig("")
