@@ -347,3 +347,8 @@ func (p *Projectile) Reset() {
 func (p *Projectile) SetActive(active bool) {
 	p.Active = active
 }
+
+// IsActive returns whether the projectile is active
+func (p *Projectile) IsActive() bool {
+	return p.Active
+}

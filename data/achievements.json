@@ -1,0 +1,232 @@
+[
+  {
+    "id": "first_victory",
+    "name": "First Victory",
+    "description": "Defeat your first enemy",
+    "type": "milestone",
+    "icon": "🎯",
+    "unlocked": true,
+    "unlocked_at": "2026-01-08T23:58:02.751981+01:00",
+    "progress": 1,
+    "progress_max": 1,
+    "reward": {
+      "scrap_metal_bonus": 50
+    }
+  },
+  {
+    "id": "perfect_wave",
+    "name": "Flawless",
+    "description": "Complete a wave without taking damage",
+    "type": "combat",
+    "icon": "✨",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 1,
+    "reward": {
+      "scrap_metal_bonus": 200
+    }
+  },
+  {
+    "id": "wave_5",
+    "name": "Survivor",
+    "description": "Reach Wave 5",
+    "type": "milestone",
+    "icon": "🌊",
+    "unlocked": true,
+    "unlocked_at": "2026-01-08T23:58:44.124103+01:00",
+    "progress": 5,
+    "progress_max": 5,
+    "reward": {
+      "unlock_weapon": "laser",
+      "scrap_metal_bonus": 100
+    }
+  },
+  {
+    "id": "wave_20",
+    "name": "Commander",
+    "description": "Reach Wave 20",
+    "type": "milestone",
+    "icon": "👑",
+    "unlocked": false,
+    "progress": 5,
+    "progress_max": 20,
+    "reward": {
+      "unlock_weapon": "railgun",
+      "scrap_metal_bonus": 300
+    }
+  },
+  {
+    "id": "thousand_kills",
+    "name": "Annihilator",
+    "description": "Defeat 1000 enemies",
+    "type": "combat",
+    "icon": "💀",
+    "unlocked": false,
+    "progress": 22,
+    "progress_max": 1000,
+    "reward": {
+      "scrap_metal_bonus": 300
+    }
+  },
+  {
+    "id": "all_weapons",
+    "name": "Arsenal Master",
+    "description": "Unlock all weapon types",
+    "type": "secret",
+    "icon": "🎖️",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 1,
+    "reward": {
+      "scrap_metal_bonus": 400
+    }
+  },
+  {
+    "id": "all_abilities",
+    "name": "Mystic Powers",
+    "description": "Unlock all abilities",
+    "type": "secret",
+    "icon": "🌟",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 1,
+    "reward": {
+      "scrap_metal_bonus": 400
+    }
+  },
+  {
+    "id": "wave_10",
+    "name": "Veteran",
+    "description": "Reach Wave 10",
+    "type": "milestone",
+    "icon": "⚔️",
+    "unlocked": false,
+    "progress": 5,
+    "progress_max": 10,
+    "reward": {
+      "unlock_ability": "dash",
+      "scrap_metal_bonus": 200
+    }
+  },
+  {
+    "id": "wave_50",
+    "name": "Legendary Defender",
+    "description": "Reach Wave 50",
+    "type": "milestone",
+    "icon": "🏆",
+    "unlocked": false,
+    "progress": 5,
+    "progress_max": 50,
+    "reward": {
+      "unlock_mode": "boss_rush",
+      "scrap_metal_bonus": 500
+    }
+  },
+  {
+    "id": "triple_kill",
+    "name": "Triple Kill",
+    "description": "Defeat 3 enemies within 2 seconds",
+    "type": "combat",
+    "icon": "💣",
+    "unlocked": true,
+    "unlocked_at": "2026-01-08T23:58:10.235459+01:00",
+    "progress": 1,
+    "progress_max": 1,
+    "reward": {
+      "scrap_metal_bonus": 75
+    }
+  },
+  {
+    "id": "max_combo",
+    "name": "Unstoppable Force",
+    "description": "Reach 5x combo multiplier",
+    "type": "combat",
+    "icon": "⚡",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 5,
+    "reward": {
+      "scrap_metal_bonus": 150
+    }
+  },
+  {
+    "id": "critical_hits",
+    "name": "Precision Strike",
+    "description": "Land 50 critical hits",
+    "type": "combat",
+    "icon": "🎯",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 50,
+    "reward": {
+      "scrap_metal_bonus": 100
+    }
+  },
+  {
+    "id": "five_bosses",
+    "name": "Dragon Killer",
+    "description": "Defeat 5 bosses",
+    "type": "boss",
+    "icon": "🗡️",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 5,
+    "reward": {
+      "unlock_ability": "slow_time",
+      "scrap_metal_bonus": 250
+    }
+  },
+  {
+    "id": "first_boss",
+    "name": "Boss Slayer",
+    "description": "Defeat your first boss",
+    "type": "boss",
+    "icon": "🐉",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 1,
+    "reward": {
+      "scrap_metal_bonus": 100
+    }
+  },
+  {
+    "id": "boss_no_damage",
+    "name": "Perfect Defense",
+    "description": "Defeat a boss without taking damage",
+    "type": "boss",
+    "icon": "🛡️",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 1,
+    "reward": {
+      "scrap_metal_bonus": 150
+    }
+  },
+  {
+    "id": "hard_mode_victory",
+    "name": "Elite Warrior",
+    "description": "Survive on Hard Mode and reach Wave 5",
+    "type": "challenge",
+    "icon": "🔥",
+    "unlocked": false,
+    "progress": 0,
+    "progress_max": 5,
+    "reward": {
+      "unlock_mode": "time_attack",
+      "scrap_metal_bonus": 200
+    }
+  },
+  {
+    "id": "score_100k",
+    "name": "Century Club",
+    "description": "Score 100,000 points in a single game",
+    "type": "challenge",
+    "icon": "💯",
+    "unlocked": false,
+    "progress": 23134,
+    "progress_max": 100000,
+    "reward": {
+      "scrap_metal_bonus": 250
+    }
+  }
+]

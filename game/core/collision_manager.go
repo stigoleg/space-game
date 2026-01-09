@@ -22,11 +22,21 @@ type CollisionManager struct {
 	OnScreenShake       func(amount float64)
 	OnPowerUpSpawned    func(x, y float64)
 	OnChainLightning    func(proj *entities.Projectile, target *entities.Enemy)
+
+	// Spatial grid for optimization
+	spatialGrid    *SpatialGrid
+	useSpatialGrid bool
 }
 
 // NewCollisionManager creates a new collision manager
-func NewCollisionManager() *CollisionManager {
-	return &CollisionManager{}
+func NewCollisionManager(screenWidth, screenHeight float64) *CollisionManager {
+	// Cell size of 100 pixels provides good balance between grid overhead and collision reduction
+	// Smaller cells = more overhead but fewer checks per cell
+	// Larger cells = less overhead but more checks per cell
+	return &CollisionManager{
+		spatialGrid:    NewSpatialGrid(screenWidth, screenHeight, 100.0),
+		useSpatialGrid: true, // Enable spatial grid by default
+	}
 }
 
 // CheckAllCollisions performs all collision detection for the game
@@ -42,6 +52,11 @@ func (cm *CollisionManager) CheckAllCollisions(
 	damageMultiplier float64,
 	powerupSpawnRate float64,
 ) ([]*entities.Enemy, []*entities.PowerUp) {
+
+	// Populate spatial grid for optimized collision detection
+	if cm.useSpatialGrid {
+		cm.spatialGrid.PopulateGrid(enemies, projectiles, powerups, asteroids)
+	}
 
 	// Check player projectiles vs enemies
 	enemies = cm.handleProjectileEnemyCollisions(enemies, projectiles, powerupSpawnRate)
@@ -82,18 +97,40 @@ func (cm *CollisionManager) handleProjectileEnemyCollisions(
 	projectiles []*entities.Projectile,
 	powerupSpawnRate float64,
 ) []*entities.Enemy {
-	for _, p := range projectiles {
-		if !p.Active || !p.Friendly {
-			continue
-		}
-
-		for _, e := range enemies {
-			if !e.Active {
+	if cm.useSpatialGrid {
+		// Spatial grid optimization: only check enemies near each projectile
+		for _, p := range projectiles {
+			if !p.Active || !p.Friendly {
 				continue
 			}
 
-			if checkCircleCollision(p.X, p.Y, p.Radius, e.X, e.Y, e.Radius) {
-				cm.handleProjectileHitEnemy(p, e, powerupSpawnRate)
+			// Get only nearby enemies instead of checking all enemies
+			nearbyEnemies := cm.spatialGrid.GetNearbyEnemies(p.X, p.Y, p.Radius+50) // +50 for safety margin
+			for _, e := range nearbyEnemies {
+				if !e.Active {
+					continue
+				}
+
+				if checkCircleCollision(p.X, p.Y, p.Radius, e.X, e.Y, e.Radius) {
+					cm.handleProjectileHitEnemy(p, e, powerupSpawnRate)
+				}
+			}
+		}
+	} else {
+		// Fallback: check all projectiles against all enemies (O(n²))
+		for _, p := range projectiles {
+			if !p.Active || !p.Friendly {
+				continue
+			}
+
+			for _, e := range enemies {
+				if !e.Active {
+					continue
+				}
+
+				if checkCircleCollision(p.X, p.Y, p.Radius, e.X, e.Y, e.Radius) {
+					cm.handleProjectileHitEnemy(p, e, powerupSpawnRate)
+				}
 			}
 		}
 	}

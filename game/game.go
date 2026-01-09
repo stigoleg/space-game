@@ -4,9 +4,12 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"time"
 
+	"stellar-siege/game/core"
 	"stellar-siege/game/di"
 	"stellar-siege/game/entities"
+	"stellar-siege/game/states"
 	"stellar-siege/game/systems"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -31,7 +34,10 @@ type Game struct {
 	// Dependency injection container
 	container *di.Container
 
-	state       GameState
+	// State management
+	state        GameState
+	stateMachine *states.StateMachine
+
 	player      *entities.Player
 	enemies     []*entities.Enemy
 	boss        *entities.Boss
@@ -46,6 +52,14 @@ type Game struct {
 	menu        *systems.Menu
 	sound       *systems.SoundManager
 	sprites     *systems.SpriteManager
+	perfMon     *systems.PerformanceMonitor
+
+	// Spatial grid for collision optimization
+	spatialGrid *core.SpatialGrid
+
+	// Object pools for reducing allocations
+	projectilePool *core.EntityPool[*entities.Projectile]
+	explosionPool  *core.EntityPool[*entities.Explosion]
 
 	score                int64
 	wave                 int
@@ -139,12 +153,35 @@ func NewGame() *Game {
 		return systems.NewMenu(sprites), nil
 	})
 
+	// Performance Monitor
+	container.RegisterSingleton("PerformanceMonitor", func(c *di.Container) (interface{}, error) {
+		return systems.NewPerformanceMonitor(), nil
+	})
+
 	// Resolve initial services
 	g.sound = container.MustResolve(di.ServiceSoundManager).(*systems.SoundManager)
 	g.sprites = container.MustResolve(di.ServiceSpriteManager).(*systems.SpriteManager)
 	g.stars = container.MustResolve(di.ServiceStarfield).(*systems.StarField)
 	g.leaderboard = container.MustResolve(di.ServiceLeaderboardManager).(*systems.Leaderboard)
 	g.menu = container.MustResolve(di.ServiceMenu).(*systems.Menu)
+	g.perfMon = container.MustResolve("PerformanceMonitor").(*systems.PerformanceMonitor)
+
+	// Initialize spatial grid for collision optimization (100x100 pixel cells)
+	g.spatialGrid = core.NewSpatialGrid(float64(ScreenWidth), float64(ScreenHeight), 100.0)
+
+	// Initialize object pools for reducing allocations
+	g.projectilePool = core.NewEntityPool[*entities.Projectile](
+		func() *entities.Projectile {
+			return &entities.Projectile{}
+		},
+		200, // Pre-allocate 200 projectiles
+	)
+	g.explosionPool = core.NewEntityPool[*entities.Explosion](
+		func() *entities.Explosion {
+			return &entities.Explosion{Particles: make([]entities.Particle, 0, 50)}
+		},
+		50, // Pre-allocate 50 explosions
+	)
 
 	// Load Gist configuration for online leaderboard from environment variables
 	gistConfig, _ := systems.LoadGistConfig("")
@@ -159,6 +196,9 @@ func NewGame() *Game {
 		}()
 	}
 
+	// Initialize state machine
+	g.initializeStateMachine()
+
 	return g
 }
 
@@ -166,7 +206,7 @@ func (g *Game) startGame() {
 	// Get difficulty config
 	g.difficultyConfig = GetDifficultyConfig(g.selectedDifficulty)
 
-	g.state = StatePlaying
+	g.transitionToState(StatePlaying)
 	g.player = entities.NewPlayer(ScreenWidth/2, ScreenHeight-100)
 
 	// Apply difficulty settings to player
@@ -206,9 +246,37 @@ func (g *Game) startGame() {
 }
 
 func (g *Game) Update() error {
+	// Track frame time
+	frameStart := time.Now()
+	defer func() {
+		g.perfMon.RecordFrame(time.Since(frameStart))
+
+		// Update entity counts for monitoring
+		g.perfMon.UpdateEntityCount("player", func() int {
+			if g.player != nil && g.player.Active {
+				return 1
+			}
+			return 0
+		}())
+		g.perfMon.UpdateEntityCount("enemies", len(g.enemies))
+		g.perfMon.UpdateEntityCount("projectiles", len(g.projectiles))
+		g.perfMon.UpdateEntityCount("explosions", len(g.explosions))
+		g.perfMon.UpdateEntityCount("powerups", len(g.powerups))
+		g.perfMon.UpdateEntityCount("asteroids", len(g.asteroids))
+
+		// Update memory stats periodically
+		g.perfMon.UpdateMemoryStats()
+	}()
+
 	// Update starfield always (visual effect)
 	g.stars.Update()
 
+	// Use state machine if initialized, otherwise fall back to manual state handling
+	if g.stateMachine != nil {
+		return g.stateMachine.Update()
+	}
+
+	// Fallback: manual state handling (for backwards compatibility during transition)
 	switch g.state {
 	case StateMenu:
 		g.updateMenu()
@@ -272,7 +340,7 @@ func (g *Game) updatePlaying() {
 
 	// Pause
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyP) {
-		g.state = StatePaused
+		g.transitionToState(StatePaused)
 		return
 	}
 
@@ -529,7 +597,7 @@ func (g *Game) updateLowHealthWarning() {
 // checkGameOver handles game over condition and cleanup
 func (g *Game) checkGameOver() {
 	if g.player == nil || !g.player.Active {
-		g.state = StateGameOver
+		g.transitionToState(StateGameOver)
 		g.nameInputMode = true
 		g.sound.PlaySound(systems.SoundGameOver)
 
@@ -546,10 +614,10 @@ func (g *Game) checkGameOver() {
 
 func (g *Game) updatePaused() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyP) {
-		g.state = StatePlaying
+		g.transitionToState(StatePlaying)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyQ) {
-		g.state = StateMenu
+		g.transitionToState(StateMenu)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyS) {
 		// Toggle sound in pause menu
@@ -584,7 +652,7 @@ func (g *Game) updateGameOver() {
 			g.startGame()
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyQ) {
-			g.state = StateMenu
+			g.transitionToState(StateMenu)
 		}
 	}
 }
@@ -698,12 +766,25 @@ func (g *Game) drawOnlineLeaderboard(screen *ebiten.Image) {
 }
 
 func (g *Game) checkCollisions() {
-	// Player projectiles vs enemies
+	// Track collision detection time for performance monitoring
+	collisionStart := time.Now()
+	defer func() {
+		g.perfMon.RecordCollisionTime(time.Since(collisionStart))
+	}()
+
+	// Populate spatial grid for optimized collision detection
+	// This reduces O(n²) checks to O(n) by only checking nearby entities
+	g.spatialGrid.PopulateGrid(g.enemies, g.projectiles, g.powerups, g.asteroids)
+
+	// Player projectiles vs enemies - OPTIMIZED with spatial grid
 	for _, p := range g.projectiles {
 		if !p.Active || !p.Friendly {
 			continue
 		}
-		for _, e := range g.enemies {
+
+		// Get only nearby enemies instead of checking all enemies (O(n²) → O(n))
+		nearbyEnemies := g.spatialGrid.GetNearbyEnemies(p.X, p.Y, p.Radius+50)
+		for _, e := range nearbyEnemies {
 			if !e.Active {
 				continue
 			}
@@ -947,21 +1028,30 @@ func (g *Game) addScore(points int64) {
 }
 
 func (g *Game) spawnExplosion(x, y, size float64) {
-	g.explosions = append(g.explosions, entities.NewExplosion(x, y, size))
+	// Get explosion from pool instead of allocating new one
+	explosion := g.explosionPool.Get()
+	*explosion = *entities.NewExplosion(x, y, size)
+	g.explosions = append(g.explosions, explosion)
 	// Sound is played by the caller based on enemy/asteroid type
 }
 
 func (g *Game) spawnExplosionWithType(x, y, size float64, expType entities.ExplosionType) {
-	g.explosions = append(g.explosions, entities.NewExplosionWithType(x, y, size, expType))
+	// Get explosion from pool instead of allocating new one
+	explosion := g.explosionPool.Get()
+	*explosion = *entities.NewExplosionWithType(x, y, size, expType)
+	g.explosions = append(g.explosions, explosion)
 	// Sound is played by the caller based on enemy/asteroid type
 }
 
 func (g *Game) cleanupEntities() {
-	// Clean projectiles
+	// Clean projectiles - return inactive ones to pool
 	activeProjectiles := g.projectiles[:0]
 	for _, p := range g.projectiles {
 		if p.Active {
 			activeProjectiles = append(activeProjectiles, p)
+		} else {
+			// Return to pool for reuse
+			g.projectilePool.Return(p)
 		}
 	}
 	g.projectiles = activeProjectiles
@@ -975,11 +1065,14 @@ func (g *Game) cleanupEntities() {
 	}
 	g.enemies = activeEnemies
 
-	// Clean explosions
+	// Clean explosions - return inactive ones to pool
 	activeExplosions := g.explosions[:0]
 	for _, ex := range g.explosions {
 		if ex.Active {
 			activeExplosions = append(activeExplosions, ex)
+		} else {
+			// Return to pool for reuse
+			g.explosionPool.Return(ex)
 		}
 	}
 	g.explosions = activeExplosions

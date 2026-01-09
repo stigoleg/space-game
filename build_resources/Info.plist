@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>stellar-siege</string>
+    <key>CFBundleName</key>
+    <string>Stellar Siege</string>
+    <key>CFBundleDisplayName</key>
+    <string>Stellar Siege</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.stellarsiege.game</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSignature</key>
+    <string>STSG</string>
+    <key>CFBundleIconFile</key>
+    <string>icon.icns</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Stellar Siege. All rights reserved.</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.games</string>
+</dict>
+</plist>
