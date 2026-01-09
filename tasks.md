@@ -536,37 +536,6 @@ All major files have been successfully split into focused modules under 750 line
   3. Confirmed phase transitions at correct health thresholds
   4. Tested shield mechanic and difficulty scaling
 - **Result**: All tests pass, boss behavior preserved
-
-#### 2.4.2: Extract boss attack patterns to boss_attacks.go 🔲 NOT STARTED
-- [ ] **What to do**:
-  1. Extract attack pattern implementations
-  2. Create `game/entities/boss_attacks.go`
-  3. Use strategy pattern for different attacks
-- **Estimated lines**: ~250-300 lines
-- **Dependencies**: Must complete 2.4.1
-- **See**: task-description.md section "Boss Simplification"
-
-#### 2.4.3: Extract boss phases to boss_phases.go 🔲 NOT STARTED
-- [ ] **What to do**:
-  1. Extract phase transition logic
-  2. Create `game/entities/boss_phases.go`
-  3. Use state pattern for phase management
-- **Estimated lines**: ~150-200 lines
-- **Dependencies**: Must complete 2.4.1
-- **See**: task-description.md section "Boss Simplification"
-
-#### 2.4.4: Simplify boss.go AI logic 🔲 NOT STARTED
-- [ ] **What to do**:
-  1. Keep only core Boss struct and Update() in boss.go
-  2. Use extracted attack and phase modules
-  3. Simplify AI decision making
-- **Target CC**: Reduce from 20+ to <15
-- **Dependencies**: Must complete 2.4.2-2.4.3
-- **See**: task-description.md section "Boss Simplification"
-
-#### 2.4.5: Test boss refactoring 🔲 NOT STARTED
-- [ ] **What to do**:
-  1. Run `go build ./game/entities/...`
   2. Test boss battles
   3. Verify all attack patterns and phases work
 - **Dependencies**: Must complete 2.4.4
