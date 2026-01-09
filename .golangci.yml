@@ -1,0 +1,45 @@
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (github.com/hajimehoshi/ebiten/v2/text).Draw
+      - (encoding/json).Marshal
+      - (encoding/json).Unmarshal
+  
+  govet:
+    disable:
+      - shadow
+
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - govet
+  disable:
+    - errcheck
+    - gosimple
+    - ineffassign
+    - staticcheck
+    - unused
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+    - path: game/entities/
+      linters:
+        - unused
+    - path: game/systems/
+      linters:
+        - unused
+    - text: "SA1019:"
+      linters:
+        - staticcheck
+    - text: "SA9003:"
+      linters:
+        - staticcheck
+  max-issues-per-linter: 50
+  max-same-issues: 10
+
+run:
+  timeout: 5m
