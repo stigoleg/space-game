@@ -6,14 +6,19 @@ import "image/color"
 type WeaponType string
 
 const (
-	WeaponTypeSpread      WeaponType = "spread"
-	WeaponTypeLaser       WeaponType = "laser"
-	WeaponTypeShotgun     WeaponType = "shotgun"
-	WeaponTypePlasma      WeaponType = "plasma"
-	WeaponTypeHoming      WeaponType = "homing"
-	WeaponTypeRailgun     WeaponType = "railgun"
-	WeaponTypeEnergyLance WeaponType = "energy_lance"
-	WeaponTypePulse       WeaponType = "pulse"
+	WeaponTypeSpread          WeaponType = "spread"
+	WeaponTypeLaser           WeaponType = "laser"
+	WeaponTypeShotgun         WeaponType = "shotgun"
+	WeaponTypePlasma          WeaponType = "plasma"
+	WeaponTypeHoming          WeaponType = "homing"
+	WeaponTypeRailgun         WeaponType = "railgun"
+	WeaponTypeEnergyLance     WeaponType = "energy_lance"
+	WeaponTypePulse           WeaponType = "pulse"
+	WeaponTypeBlaster         WeaponType = "blaster"
+	WeaponTypeFollowingRocket WeaponType = "following_rocket"
+	WeaponTypeChainLightning  WeaponType = "chain_lightning"
+	WeaponTypeFlamethrower    WeaponType = "flamethrower"
+	WeaponTypeIonBeam         WeaponType = "ion_beam"
 )
 
 // WeaponLevel represents weapon upgrade level (1-5)
@@ -51,6 +56,23 @@ type WeaponManager struct {
 	CurrentWeapon WeaponType
 }
 
+// ShouldUseMixedMode returns true if special weapons should be mixed with side blasters
+func (wm *WeaponManager) ShouldUseMixedMode() bool {
+	// Mixed mode activates when:
+	// 1. Basic gun is at max level (MkV = 8 projectiles)
+	// 2. Current weapon is NOT the basic gun
+	basicGun := wm.Weapons[WeaponTypeSpread]
+	if basicGun == nil {
+		return false
+	}
+	return basicGun.Level == WeaponLevelMkV && wm.CurrentWeapon != WeaponTypeSpread
+}
+
+// GetBasicGun returns the basic spread weapon
+func (wm *WeaponManager) GetBasicGun() *Weapon {
+	return wm.Weapons[WeaponTypeSpread]
+}
+
 // NewWeaponManager creates a new weapon manager
 func NewWeaponManager() *WeaponManager {
 	wm := &WeaponManager{
@@ -58,18 +80,18 @@ func NewWeaponManager() *WeaponManager {
 		CurrentWeapon: WeaponTypeSpread,
 	}
 
-	// Initialize base weapons
+	// Initialize base weapons - starts with single shot
 	wm.Weapons[WeaponTypeSpread] = &Weapon{
 		Type:            WeaponTypeSpread,
 		Level:           WeaponLevelMkI,
-		Name:            "Spread Shot",
-		Description:     "Standard multi-directional fire",
+		Name:            "Basic Gun",
+		Description:     "Single forward shot",
 		IconEmoji:       "💥",
-		Damage:          20,
+		Damage:          25,
 		FireRate:        6.0,
 		ProjectileSpeed: 300,
 		Spread:          0.2, // 0.2 radians ≈ 11 degrees
-		ProjectileCount: 3,
+		ProjectileCount: 1,   // Start with single shot
 		Unlocked:        true,
 		Color:           color.RGBA{0, 255, 255, 255}, // Cyan
 		GlowColor:       color.RGBA{0, 200, 255, 180}, // Cyan glow
@@ -141,11 +163,11 @@ func (wm *WeaponManager) AddWeapon(weaponType WeaponType) bool {
 			Name:            "Homing Missiles",
 			Description:     "Track enemies automatically",
 			IconEmoji:       "🚀",
-			Damage:          45,
-			FireRate:        3.5,
+			Damage:          50,
+			FireRate:        1.8, // Further reduced from 2.5 to prevent lag
 			ProjectileSpeed: 200,
 			Spread:          0.2,
-			ProjectileCount: 2,
+			ProjectileCount: 1, // Reduced from 2 to prevent lag
 			Unlocked:        true,
 			Color:           color.RGBA{255, 255, 0, 255},  // Yellow
 			GlowColor:       color.RGBA{255, 220, 50, 180}, // Yellow glow
@@ -189,14 +211,94 @@ func (wm *WeaponManager) AddWeapon(weaponType WeaponType) bool {
 			Name:            "Pulse Cannon",
 			Description:     "Rapid burst fire",
 			IconEmoji:       "💫",
-			Damage:          15,
-			FireRate:        12.0,
+			Damage:          18,  // Increased damage to compensate for slower fire rate
+			FireRate:        8.0, // Reduced from 12.0 to prevent projectile spam
 			ProjectileSpeed: 320,
 			Spread:          0.1,
 			ProjectileCount: 2,
 			Unlocked:        true,
 			Color:           color.RGBA{255, 0, 255, 255},   // Pink/Magenta
 			GlowColor:       color.RGBA{255, 100, 255, 180}, // Pink glow
+		}
+	case WeaponTypeBlaster:
+		weapon = &Weapon{
+			Type:            WeaponTypeBlaster,
+			Level:           WeaponLevelMkI,
+			Name:            "Blaster",
+			Description:     "High-damage single shot",
+			IconEmoji:       "🔶",
+			Damage:          60,
+			FireRate:        2.0,
+			ProjectileSpeed: 350,
+			Spread:          0.05,
+			ProjectileCount: 1,
+			Unlocked:        true,
+			Color:           color.RGBA{255, 100, 0, 255},  // Bright Orange
+			GlowColor:       color.RGBA{255, 150, 50, 180}, // Orange glow
+		}
+	case WeaponTypeFollowingRocket:
+		weapon = &Weapon{
+			Type:            WeaponTypeFollowingRocket,
+			Level:           WeaponLevelMkI,
+			Name:            "Following Rockets",
+			Description:     "Smart missiles that track enemies",
+			IconEmoji:       "🚀",
+			Damage:          40,  // Increased from 35
+			FireRate:        1.8, // Further reduced from 2.5 to prevent lag
+			ProjectileSpeed: 180,
+			Spread:          0.15,
+			ProjectileCount: 1, // Reduced from 2 to prevent lag
+			Unlocked:        true,
+			Color:           color.RGBA{255, 200, 0, 255},   // Yellow/Orange
+			GlowColor:       color.RGBA{255, 180, 100, 180}, // Warm glow
+		}
+	case WeaponTypeChainLightning:
+		weapon = &Weapon{
+			Type:            WeaponTypeChainLightning,
+			Level:           WeaponLevelMkI,
+			Name:            "Chain Lightning",
+			Description:     "Electric bolts that chain enemies",
+			IconEmoji:       "⚡",
+			Damage:          25,
+			FireRate:        4.0,
+			ProjectileSpeed: 400,
+			Spread:          0.0,
+			ProjectileCount: 1,
+			Unlocked:        true,
+			Color:           color.RGBA{100, 200, 255, 255}, // Electric Blue
+			GlowColor:       color.RGBA{200, 230, 255, 200}, // White-blue glow
+		}
+	case WeaponTypeFlamethrower:
+		weapon = &Weapon{
+			Type:            WeaponTypeFlamethrower,
+			Level:           WeaponLevelMkI,
+			Name:            "Flamethrower",
+			Description:     "Short range flame stream",
+			IconEmoji:       "🔥",
+			Damage:          12,  // Increased damage to compensate for slower fire rate
+			FireRate:        6.0, // Reduced from 10.0 to prevent projectile spam
+			ProjectileSpeed: 200,
+			Spread:          0.6,
+			ProjectileCount: 3,
+			Unlocked:        true,
+			Color:           color.RGBA{255, 100, 0, 255},  // Red/Orange
+			GlowColor:       color.RGBA{255, 200, 50, 180}, // Yellow glow
+		}
+	case WeaponTypeIonBeam:
+		weapon = &Weapon{
+			Type:            WeaponTypeIonBeam,
+			Level:           WeaponLevelMkI,
+			Name:            "Ion Beam",
+			Description:     "Continuous penetrating beam",
+			IconEmoji:       "🌟",
+			Damage:          10,  // Increased damage to compensate for slower fire rate
+			FireRate:        8.0, // Reduced from 12.0 to prevent projectile spam
+			ProjectileSpeed: 600,
+			Spread:          0.0,
+			ProjectileCount: 1,
+			Unlocked:        true,
+			Color:           color.RGBA{0, 255, 255, 255},   // Cyan
+			GlowColor:       color.RGBA{150, 255, 255, 200}, // Bright cyan glow
 		}
 	default:
 		return false
@@ -240,38 +342,85 @@ func (wm *WeaponManager) UpgradeWeapon(weaponType WeaponType) bool {
 		if weapon.Level < WeaponLevelMkV {
 			weapon.Level++
 
-			// Apply upgrade bonuses (more gradual scaling)
+			// Special handling for basic gun progression
+			if weapon.Type == WeaponTypeSpread {
+				switch weapon.Level {
+				case WeaponLevelMkI:
+					// Level 1: 1 blast straight forward
+					weapon.ProjectileCount = 1
+					weapon.Name = "Basic Gun"
+					weapon.Description = "Single forward shot"
+				case WeaponLevelMkII:
+					// Level 2: 2 blasts straight forward
+					weapon.ProjectileCount = 2
+					weapon.Name = "Dual Guns"
+					weapon.Description = "Two forward shots"
+					weapon.Damage *= 1.1 // +10% damage
+				case WeaponLevelMkIII:
+					// Level 3: 4 blasts (2 center + 1 each side angled)
+					weapon.ProjectileCount = 4
+					weapon.Name = "Spread Shot"
+					weapon.Description = "Four-way coverage"
+					weapon.Damage *= 1.1    // +10% damage
+					weapon.FireRate *= 1.05 // +5% fire rate
+				case WeaponLevelMkIV:
+					// Level 4: 6 blasts (2 center + 2 each side)
+					weapon.ProjectileCount = 6
+					weapon.Name = "Wide Spread"
+					weapon.Description = "Six-way assault"
+					weapon.Damage *= 1.1    // +10% damage
+					weapon.FireRate *= 1.05 // +5% fire rate
+				case WeaponLevelMkV:
+					// Level 5: 8 blasts (2 center + 3 each side)
+					weapon.ProjectileCount = 8
+					weapon.Name = "Maximum Spread"
+					weapon.Description = "Eight-way barrage"
+					weapon.Damage *= 1.15  // +15% damage
+					weapon.FireRate *= 1.1 // +10% fire rate
+					// Brighter colors for max level
+					weapon.Color.R = uint8(minInt(int(weapon.Color.R)+30, 255))
+					weapon.Color.G = uint8(minInt(int(weapon.Color.G)+30, 255))
+					weapon.Color.B = uint8(minInt(int(weapon.Color.B)+30, 255))
+				}
+				return true
+			}
+
+			// Apply upgrade bonuses for other weapons (more gradual scaling)
 			weapon.Damage *= 1.15          // +15% damage per level
 			weapon.FireRate *= 1.08        // +8% fire rate per level
 			weapon.ProjectileSpeed *= 1.05 // +5% speed per level
 
-			// Special bonuses at level 4 - add extra projectiles
+			// Special bonuses at level 4 - add extra projectiles (but keep it balanced)
 			if weapon.Level == WeaponLevelMkIV {
 				switch weapon.Type {
-				case WeaponTypeSpread:
-					weapon.ProjectileCount = 4 // 3 -> 4
 				case WeaponTypeShotgun:
 					weapon.ProjectileCount = 10 // 8 -> 10
 				case WeaponTypePlasma:
 					weapon.ProjectileCount = 4 // 3 -> 4
 				case WeaponTypePulse:
 					weapon.ProjectileCount = 3 // 2 -> 3
+				case WeaponTypeFollowingRocket:
+					weapon.ProjectileCount = 1 // Keep at 1 to prevent lag
+				case WeaponTypeFlamethrower:
+					weapon.ProjectileCount = 3 // Keep at 3 to prevent lag
 				}
 			}
 
-			// Special bonuses at level 5 - even more projectiles
+			// Special bonuses at level 5 - even more projectiles (but keep it reasonable)
 			if weapon.Level == WeaponLevelMkV {
 				switch weapon.Type {
-				case WeaponTypeSpread:
-					weapon.ProjectileCount = 5 // 4 -> 5
 				case WeaponTypeShotgun:
 					weapon.ProjectileCount = 12 // 10 -> 12
 				case WeaponTypePlasma:
 					weapon.ProjectileCount = 5 // 4 -> 5
 				case WeaponTypePulse:
-					weapon.ProjectileCount = 4 // 3 -> 4
+					weapon.ProjectileCount = 3 // Keep at 3 to prevent lag
 				case WeaponTypeHoming:
-					weapon.ProjectileCount = 3 // 2 -> 3
+					weapon.ProjectileCount = 2 // 1 -> 2
+				case WeaponTypeFollowingRocket:
+					weapon.ProjectileCount = 2 // 1 -> 2
+				case WeaponTypeFlamethrower:
+					weapon.ProjectileCount = 4 // 3 -> 4 (reduced from 5)
 				}
 
 				// Level 5 weapons get brighter, more intense colors

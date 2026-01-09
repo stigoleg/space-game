@@ -2,6 +2,7 @@ package entities
 
 import (
 	"image/color"
+	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -17,6 +18,25 @@ type Projectile struct {
 	Trail      []struct{ X, Y float64 }
 	Color      color.RGBA // Custom color for weapon types
 	GlowColor  color.RGBA // Custom glow color
+	Lifetime   float64    // Time to live in seconds (0 = infinite)
+	Age        float64    // Current age in seconds
+
+	// Special behavior flags
+	Homing         bool    // Following rocket behavior
+	HomingSpeed    float64 // Turn rate for homing (radians per frame)
+	TargetEnemyIdx int     // Index of target enemy (-1 = no target)
+
+	Chaining   bool    // Chain lightning behavior
+	ChainCount int     // How many times can chain
+	ChainRange float64 // Range to find next target
+
+	Burning      bool    // Causes DoT on hit
+	BurnDuration float64 // How long burn lasts (seconds)
+	BurnDamage   int     // Damage per tick
+
+	Beam       bool                   // Ion beam behavior
+	BeamSource struct{ X, Y float64 } // Start point of beam
+	Piercing   bool                   // Penetrates enemies
 }
 
 func NewProjectile(x, y, velX, velY float64, friendly bool, damage int) *Projectile {
@@ -31,38 +51,53 @@ func NewProjectile(x, y, velX, velY float64, friendly bool, damage int) *Project
 	}
 
 	return &Projectile{
-		X:         x,
-		Y:         y,
-		VelX:      velX,
-		VelY:      velY,
-		Radius:    7, // Increased from 5 to 7
-		Damage:    damage,
-		Friendly:  friendly,
-		Active:    true,
-		Trail:     make([]struct{ X, Y float64 }, 0, 8), // Increased from 5 to 8
-		Color:     mainColor,
-		GlowColor: glowColor,
+		X:              x,
+		Y:              y,
+		VelX:           velX,
+		VelY:           velY,
+		Radius:         7, // Increased from 5 to 7
+		Damage:         damage,
+		Friendly:       friendly,
+		Active:         true,
+		Trail:          make([]struct{ X, Y float64 }, 0, 8), // Increased from 5 to 8
+		Color:          mainColor,
+		GlowColor:      glowColor,
+		TargetEnemyIdx: -1,  // No target initially
+		Lifetime:       3.0, // Reduced from 5.0 to 3.0 for faster cleanup
+		Age:            0.0, // Start at age 0
 	}
 }
 
 // NewProjectileWithColor creates a projectile with custom colors (for weapon variety)
 func NewProjectileWithColor(x, y, velX, velY float64, friendly bool, damage int, mainColor, glowColor color.RGBA) *Projectile {
 	return &Projectile{
-		X:         x,
-		Y:         y,
-		VelX:      velX,
-		VelY:      velY,
-		Radius:    7,
-		Damage:    damage,
-		Friendly:  friendly,
-		Active:    true,
-		Trail:     make([]struct{ X, Y float64 }, 0, 8),
-		Color:     mainColor,
-		GlowColor: glowColor,
+		X:              x,
+		Y:              y,
+		VelX:           velX,
+		VelY:           velY,
+		Radius:         7,
+		Damage:         damage,
+		Friendly:       friendly,
+		Active:         true,
+		Trail:          make([]struct{ X, Y float64 }, 0, 8),
+		Color:          mainColor,
+		GlowColor:      glowColor,
+		TargetEnemyIdx: -1,  // No target initially
+		Lifetime:       3.0, // Reduced from 5.0 to 3.0 for faster cleanup
+		Age:            0.0, // Start at age 0
 	}
 }
 
 func (p *Projectile) Update() {
+	// Update age
+	p.Age += 1.0 / 60.0 // Assuming 60 FPS
+
+	// Check if projectile has expired
+	if p.Lifetime > 0 && p.Age >= p.Lifetime {
+		p.Active = false
+		return
+	}
+
 	// Store trail position
 	p.Trail = append(p.Trail, struct{ X, Y float64 }{p.X, p.Y})
 	if len(p.Trail) > 8 { // Increased trail length
@@ -73,10 +108,24 @@ func (p *Projectile) Update() {
 	p.Y += p.VelY
 }
 
+// IsOffScreen checks if projectile is clearly beyond screen bounds for early culling
+// screenWidth and screenHeight should be passed from game
+func (p *Projectile) IsOffScreen(screenWidth, screenHeight int) bool {
+	const buffer = 100.0 // Pixels beyond screen edge before culling
+	return p.X < -buffer || p.X > float64(screenWidth)+buffer ||
+		p.Y < -buffer || p.Y > float64(screenHeight)+buffer
+}
+
 func (p *Projectile) Draw(screen *ebiten.Image, shakeX, shakeY float64, sprite *ebiten.Image) {
 	// Simple screen coordinates with shake
 	x := float32(p.X + shakeX)
 	y := float32(p.Y + shakeY)
+
+	// Draw beam if this is a beam projectile
+	if p.Beam {
+		p.DrawBeam(screen, shakeX, shakeY)
+		return
+	}
 
 	// If sprite is provided, use sprite-based rendering
 	if sprite != nil {
@@ -85,6 +134,36 @@ func (p *Projectile) Draw(screen *ebiten.Image, shakeX, shakeY float64, sprite *
 		// Fallback to procedural rendering
 		p.drawProcedural(screen, x, y, shakeX, shakeY)
 	}
+}
+
+// DrawBeam draws a continuous beam from source to current position
+func (p *Projectile) DrawBeam(screen *ebiten.Image, shakeX, shakeY float64) {
+	if !p.Beam {
+		return
+	}
+
+	// Draw continuous beam from source to current position
+	startX := float32(p.BeamSource.X + shakeX)
+	startY := float32(p.BeamSource.Y + shakeY)
+	endX := float32(p.X + shakeX)
+	endY := float32(p.Y + shakeY)
+
+	// Draw multiple layers for glow effect
+	// Outer glow
+	vector.StrokeLine(screen, startX, startY, endX, endY, 12,
+		color.RGBA{p.GlowColor.R, p.GlowColor.G, p.GlowColor.B, 60}, true)
+
+	// Middle glow
+	vector.StrokeLine(screen, startX, startY, endX, endY, 6,
+		color.RGBA{p.GlowColor.R, p.GlowColor.G, p.GlowColor.B, 150}, true)
+
+	// Core beam
+	vector.StrokeLine(screen, startX, startY, endX, endY, 3,
+		p.Color, true)
+
+	// Inner bright line
+	vector.StrokeLine(screen, startX, startY, endX, endY, 1,
+		color.RGBA{255, 255, 255, 255}, true)
 }
 
 func (p *Projectile) drawSpriteBased(screen *ebiten.Image, x, y float32, sprite *ebiten.Image, shakeX, shakeY float64) {
@@ -160,4 +239,73 @@ func (p *Projectile) drawProcedural(screen *ebiten.Image, x, y float32, shakeX, 
 
 	// Inner bright spot
 	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)*0.3, color.RGBA{255, 255, 255, 255}, true)
+}
+
+// UpdateHoming updates projectile trajectory to home in on enemies
+// enemies parameter should be passed from game loop
+func (p *Projectile) UpdateHoming(enemies []*Enemy) {
+	if !p.Homing {
+		return
+	}
+
+	// Find target or validate current target
+	var target *Enemy
+	if p.TargetEnemyIdx >= 0 && p.TargetEnemyIdx < len(enemies) {
+		potentialTarget := enemies[p.TargetEnemyIdx]
+		if potentialTarget.Active {
+			target = potentialTarget
+		}
+	}
+
+	// If no valid target, find nearest enemy
+	if target == nil {
+		minDist := 999999.0
+		for i, e := range enemies {
+			if !e.Active {
+				continue
+			}
+
+			dist := (e.X-p.X)*(e.X-p.X) + (e.Y-p.Y)*(e.Y-p.Y)
+			if dist < minDist {
+				minDist = dist
+				target = e
+				p.TargetEnemyIdx = i
+			}
+		}
+	}
+
+	if target == nil {
+		return // No target, fly straight
+	}
+
+	// Calculate angle to target
+	dx := target.X - p.X
+	dy := target.Y - p.Y
+	targetAngle := math.Atan2(dy, dx)
+
+	// Current angle
+	currentAngle := math.Atan2(p.VelY, p.VelX)
+
+	// Calculate angle difference
+	angleDiff := targetAngle - currentAngle
+
+	// Normalize to [-π, π]
+	for angleDiff > math.Pi {
+		angleDiff -= 2 * math.Pi
+	}
+	for angleDiff < -math.Pi {
+		angleDiff += 2 * math.Pi
+	}
+
+	// Apply turn rate limit
+	turnAmount := math.Min(math.Abs(angleDiff), p.HomingSpeed)
+	if angleDiff < 0 {
+		turnAmount = -turnAmount
+	}
+
+	// Calculate new velocity
+	newAngle := currentAngle + turnAmount
+	speed := math.Sqrt(p.VelX*p.VelX + p.VelY*p.VelY)
+	p.VelX = math.Cos(newAngle) * speed
+	p.VelY = math.Sin(newAngle) * speed
 }

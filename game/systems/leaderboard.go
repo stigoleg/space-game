@@ -29,10 +29,11 @@ type ipApiResponse struct {
 }
 
 type Leaderboard struct {
-	Entries  []LeaderboardEntry `json:"entries"`
-	FilePath string             `json:"-"`
-	ipCache  map[string]string  `json:"-"` // Cache IP -> Country mappings
-	cacheMux sync.Mutex         `json:"-"`
+	Entries    []LeaderboardEntry `json:"entries"`
+	FilePath   string             `json:"-"`
+	ipCache    map[string]string  `json:"-"` // Cache IP -> Country mappings
+	cacheMux   sync.Mutex         `json:"-"` // Protects ipCache
+	entriesMux sync.RWMutex       `json:"-"` // Protects Entries slice
 }
 
 func NewLeaderboard(filePath string) *Leaderboard {
@@ -48,15 +49,21 @@ func NewLeaderboard(filePath string) *Leaderboard {
 func (lb *Leaderboard) Load() error {
 	data, err := os.ReadFile(lb.FilePath)
 	if err != nil {
-		// File doesn't exist, that's fine
-		return nil
+		// Check if it's specifically a "file not found" error
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
 	}
+
+	lb.entriesMux.Lock()
+	defer lb.entriesMux.Unlock()
 
 	if err := json.Unmarshal(data, &lb.Entries); err != nil {
 		return err
 	}
 
-	lb.updateRanks()
+	lb.updateRanksUnsafe() // Call unsafe version since we hold the lock
 	return nil
 }
 
@@ -67,7 +74,10 @@ func (lb *Leaderboard) Save() error {
 		return err
 	}
 
+	lb.entriesMux.RLock()
 	data, err := json.MarshalIndent(lb.Entries, "", "  ")
+	lb.entriesMux.RUnlock()
+
 	if err != nil {
 		return err
 	}
@@ -114,42 +124,51 @@ func (lb *Leaderboard) GetCountryFromIP() string {
 }
 
 func (lb *Leaderboard) AddEntry(name string, score int64, wave int) {
+	entry := LeaderboardEntry{
+		Name:    name,
+		Score:   score,
+		Wave:    wave,
+		Country: "XX", // Default, will be updated asynchronously
+		Date:    time.Now(),
+	}
+
+	lb.entriesMux.Lock()
+	lb.Entries = append(lb.Entries, entry)
+	lb.updateRanksUnsafe() // Call unsafe version since we hold the lock
+
+	// Keep only top 10
+	if len(lb.Entries) > 10 {
+		lb.Entries = lb.Entries[:10]
+	}
+	lb.entriesMux.Unlock()
+
+	lb.Save()
+
 	// Get country from IP in background (don't block)
-	country := "XX"
 	go func() {
-		country = lb.GetCountryFromIP()
+		country := lb.GetCountryFromIP()
 		// Update entry with country if we got it
-		lb.cacheMux.Lock()
+		lb.entriesMux.Lock()
 		for i := range lb.Entries {
 			if lb.Entries[i].Name == name && lb.Entries[i].Score == score {
 				lb.Entries[i].Country = country
 				break
 			}
 		}
-		lb.cacheMux.Unlock()
+		lb.entriesMux.Unlock()
 		lb.Save()
 	}()
-
-	entry := LeaderboardEntry{
-		Name:    name,
-		Score:   score,
-		Wave:    wave,
-		Country: country,
-		Date:    time.Now(),
-	}
-
-	lb.Entries = append(lb.Entries, entry)
-	lb.updateRanks()
-
-	// Keep only top 10
-	if len(lb.Entries) > 10 {
-		lb.Entries = lb.Entries[:10]
-	}
-
-	lb.Save()
 }
 
+// updateRanks updates ranks with lock protection (safe for concurrent use)
 func (lb *Leaderboard) updateRanks() {
+	lb.entriesMux.Lock()
+	defer lb.entriesMux.Unlock()
+	lb.updateRanksUnsafe()
+}
+
+// updateRanksUnsafe updates ranks without lock (caller must hold lock)
+func (lb *Leaderboard) updateRanksUnsafe() {
 	// Sort by score descending
 	sort.Slice(lb.Entries, func(i, j int) bool {
 		return lb.Entries[i].Score > lb.Entries[j].Score
@@ -162,6 +181,9 @@ func (lb *Leaderboard) updateRanks() {
 }
 
 func (lb *Leaderboard) GetHighScore() int64 {
+	lb.entriesMux.RLock()
+	defer lb.entriesMux.RUnlock()
+
 	if len(lb.Entries) == 0 {
 		return 0
 	}
@@ -171,13 +193,21 @@ func (lb *Leaderboard) GetHighScore() int64 {
 func (lb *Leaderboard) Draw(screen *ebiten.Image, centerX, startY int, currentScore int64) {
 	DrawTextCentered(screen, "=== LEADERBOARD ===", centerX, startY, 2, color.RGBA{255, 200, 50, 255})
 
-	if len(lb.Entries) == 0 {
+	lb.entriesMux.RLock()
+	entriesCount := len(lb.Entries)
+	if entriesCount == 0 {
+		lb.entriesMux.RUnlock()
 		DrawTextCentered(screen, "No scores yet!", centerX, startY+50, 1.5, color.RGBA{150, 150, 150, 255})
 		return
 	}
 
+	// Copy entries for rendering to minimize lock time
+	entriesCopy := make([]LeaderboardEntry, entriesCount)
+	copy(entriesCopy, lb.Entries)
+	lb.entriesMux.RUnlock()
+
 	y := startY + 40
-	for _, entry := range lb.Entries {
+	for _, entry := range entriesCopy {
 		// Highlight if this is the current score
 		clr := color.RGBA{200, 200, 200, 255}
 		if entry.Score == currentScore {

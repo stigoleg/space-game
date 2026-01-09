@@ -238,7 +238,25 @@ func (g *Game) updatePlaying() {
 		return
 	}
 
-	// Update player
+	// Update game systems in order
+	g.updatePlayerState()
+	g.updateBossWave()
+	g.updateRegularWaveSpawning()
+	g.updateEnemies()
+	g.updateProjectiles()
+	g.updateExplosions()
+	g.updatePowerups()
+	g.updateAsteroids()
+	g.checkCollisions()
+	g.updateComboSystem()
+	g.updateVisualEffects()
+	g.updateLowHealthWarning()
+	g.cleanupEntities()
+	g.checkGameOver()
+}
+
+// updatePlayerState handles player update, shield recharge, and shooting
+func (g *Game) updatePlayerState() {
 	if g.player != nil && g.player.Active {
 		// Store previous shield value
 		prevShield := g.player.Shield
@@ -259,76 +277,89 @@ func (g *Game) updatePlaying() {
 			}
 		}
 	}
+}
 
-	// Boss wave handling
-	if g.bossWave {
-		if g.boss != nil && g.boss.Active && !g.boss.IsDead() {
-			// Track previous phase to detect transitions
-			prevPhase := g.boss.Phase
-
-			bossProjectiles := g.boss.Update(g.player.X, g.player.Y, ScreenWidth, ScreenHeight)
-			g.projectiles = append(g.projectiles, bossProjectiles...)
-
-			// Play phase transition sounds
-			if prevPhase != g.boss.Phase {
-				if g.boss.Phase == entities.BossPhaseRage {
-					g.sound.PlaySound(systems.SoundBossRage)
-				} else if g.boss.Phase == entities.BossPhaseSpecialAttack {
-					g.sound.PlaySound(systems.SoundBossSpecial)
-				}
-			}
-
-			// Play attack sound every few attacks
-			if len(bossProjectiles) > 0 && g.boss.AttackPattern == 0 {
-				// Play boss attack sound periodically
-				if g.boss.AttackTimer < 0.1 {
-					if g.boss.Phase == entities.BossPhaseSpecialAttack {
-						g.sound.PlaySound(systems.SoundBossSpecial)
-					} else {
-						g.sound.PlaySound(systems.SoundBossAttack)
-					}
-				}
-			}
-
-			// Spawn mini-bosses during boss fight for higher difficulties
-			g.updateMiniBossSpawning()
-		} else if g.boss != nil && g.boss.IsDead() {
-			// Boss defeated!
-			g.spawnExplosion(g.boss.X, g.boss.Y, 100)
-			g.spawnExplosion(g.boss.X-40, g.boss.Y-20, 60)
-			g.spawnExplosion(g.boss.X+40, g.boss.Y+20, 60)
-			g.addScore(int64(g.boss.Points))
-			g.screenShake = 30
-			g.sound.PlaySound(systems.SoundExplosionBoss) // Boss explosion
-			g.sound.PlaySound(systems.SoundBossDefeat)    // Victory fanfare
-			g.boss = nil
-			g.bossWave = false
-			g.miniBossSpawnTimer = 0
-			g.miniBossesSpawned = 0
-			// Spawn health powerup after boss
-			g.powerups = append(g.powerups, entities.NewPowerUp(ScreenWidth/2, 200))
-		}
-	} else {
-		// Regular wave spawning
-		newEnemies := g.spawner.Update(g.gameTime, g.wave)
-		g.enemies = append(g.enemies, newEnemies...)
-		if g.spawner.WaveCompleted && len(g.enemies) == 0 {
-			g.wave++
-			g.score += int64(g.wave * 1000) // Wave bonus
-
-			// Every 5 waves, spawn a boss
-			if g.wave%5 == 0 {
-				g.bossWave = true
-				g.boss = entities.NewBoss(ScreenWidth, g.wave/5)
-				g.sound.PlaySound(systems.SoundBossAppear)
-			} else {
-				g.spawner.StartWave(g.wave)
-				g.sound.PlaySound(systems.SoundWaveStart)
-			}
-		}
+// updateBossWave handles boss wave logic, including boss updates and defeat
+func (g *Game) updateBossWave() {
+	if !g.bossWave {
+		return
 	}
 
-	// Update enemies
+	if g.boss != nil && g.boss.Active && !g.boss.IsDead() {
+		// Track previous phase to detect transitions
+		prevPhase := g.boss.Phase
+
+		bossProjectiles := g.boss.Update(g.player.X, g.player.Y, ScreenWidth, ScreenHeight)
+		g.projectiles = append(g.projectiles, bossProjectiles...)
+
+		// Play phase transition sounds
+		if prevPhase != g.boss.Phase {
+			if g.boss.Phase == entities.BossPhaseRage {
+				g.sound.PlaySound(systems.SoundBossRage)
+			} else if g.boss.Phase == entities.BossPhaseSpecialAttack {
+				g.sound.PlaySound(systems.SoundBossSpecial)
+			}
+		}
+
+		// Play attack sound every few attacks
+		if len(bossProjectiles) > 0 && g.boss.AttackPattern == 0 {
+			// Play boss attack sound periodically
+			if g.boss.AttackTimer < 0.1 {
+				if g.boss.Phase == entities.BossPhaseSpecialAttack {
+					g.sound.PlaySound(systems.SoundBossSpecial)
+				} else {
+					g.sound.PlaySound(systems.SoundBossAttack)
+				}
+			}
+		}
+
+		// Spawn mini-bosses during boss fight for higher difficulties
+		g.updateMiniBossSpawning()
+	} else if g.boss != nil && g.boss.IsDead() {
+		// Boss defeated!
+		g.spawnExplosion(g.boss.X, g.boss.Y, 100)
+		g.spawnExplosion(g.boss.X-40, g.boss.Y-20, 60)
+		g.spawnExplosion(g.boss.X+40, g.boss.Y+20, 60)
+		g.addScore(int64(g.boss.Points))
+		g.screenShake = 30
+		g.sound.PlaySound(systems.SoundExplosionBoss) // Boss explosion
+		g.sound.PlaySound(systems.SoundBossDefeat)    // Victory fanfare
+		g.boss = nil
+		g.bossWave = false
+		g.miniBossSpawnTimer = 0
+		g.miniBossesSpawned = 0
+		// Spawn health powerup after boss
+		g.powerups = append(g.powerups, entities.NewPowerUp(ScreenWidth/2, 200))
+	}
+}
+
+// updateRegularWaveSpawning handles regular wave spawning and progression
+func (g *Game) updateRegularWaveSpawning() {
+	if g.bossWave {
+		return
+	}
+
+	// Regular wave spawning
+	newEnemies := g.spawner.Update(g.gameTime, g.wave)
+	g.enemies = append(g.enemies, newEnemies...)
+	if g.spawner.WaveCompleted && len(g.enemies) == 0 {
+		g.wave++
+		g.score += int64(g.wave * 1000) // Wave bonus
+
+		// Every 5 waves, spawn a boss
+		if g.wave%5 == 0 {
+			g.bossWave = true
+			g.boss = entities.NewBoss(ScreenWidth, g.wave/5)
+			g.sound.PlaySound(systems.SoundBossAppear)
+		} else {
+			g.spawner.StartWave(g.wave)
+			g.sound.PlaySound(systems.SoundWaveStart)
+		}
+	}
+}
+
+// updateEnemies handles enemy updates and shooting
+func (g *Game) updateEnemies() {
 	for _, e := range g.enemies {
 		if e.Active {
 			e.Update(g.player.X, g.player.Y, ScreenWidth, ScreenHeight)
@@ -341,8 +372,10 @@ func (g *Game) updatePlaying() {
 			}
 		}
 	}
+}
 
-	// Update projectiles
+// updateProjectiles handles projectile updates and off-screen cleanup
+func (g *Game) updateProjectiles() {
 	for _, p := range g.projectiles {
 		if p.Active {
 			p.Update()
@@ -352,15 +385,19 @@ func (g *Game) updatePlaying() {
 			}
 		}
 	}
+}
 
-	// Update explosions
+// updateExplosions handles explosion animation updates
+func (g *Game) updateExplosions() {
 	for _, ex := range g.explosions {
 		if ex.Active {
 			ex.Update()
 		}
 	}
+}
 
-	// Update powerups
+// updatePowerups handles powerup updates and off-screen cleanup
+func (g *Game) updatePowerups() {
 	for _, pu := range g.powerups {
 		if pu.Active {
 			pu.Update()
@@ -369,7 +406,10 @@ func (g *Game) updatePlaying() {
 			}
 		}
 	}
+}
 
+// updateAsteroids handles asteroid spawning and updates
+func (g *Game) updateAsteroids() {
 	// Spawn asteroids
 	g.asteroidSpawn += 1.0 / 60.0
 	if g.asteroidSpawn > 2.0 { // Spawn every 2 seconds
@@ -392,18 +432,20 @@ func (g *Game) updatePlaying() {
 			a.Update()
 		}
 	}
+}
 
-	// Collision detection
-	g.checkCollisions()
-
-	// Update combo timer
+// updateComboSystem handles combo timer and multiplier decay
+func (g *Game) updateComboSystem() {
 	if g.comboTimer > 0 {
 		g.comboTimer -= 1.0 / 60.0
 		if g.comboTimer <= 0 {
 			g.multiplier = 1.0
 		}
 	}
+}
 
+// updateVisualEffects handles screen shake, damage flash, floating text, and impact effects
+func (g *Game) updateVisualEffects() {
 	// Update screen shake
 	if g.screenShake > 0 {
 		g.screenShake -= 0.5
@@ -433,8 +475,10 @@ func (g *Game) updatePlaying() {
 			ie.Update()
 		}
 	}
+}
 
-	// Low health warning sound (play every 3 seconds when health < 30%)
+// updateLowHealthWarning plays low health warning sound when appropriate
+func (g *Game) updateLowHealthWarning() {
 	if g.player != nil && g.player.Active {
 		healthPercent := float64(g.player.Health) / float64(g.player.MaxHealth)
 		if healthPercent < 0.3 && g.gameTime-g.lastLowHealthWarning > 3.0 {
@@ -442,11 +486,10 @@ func (g *Game) updatePlaying() {
 			g.lastLowHealthWarning = g.gameTime
 		}
 	}
+}
 
-	// Clean up inactive entities
-	g.cleanupEntities()
-
-	// Check game over
+// checkGameOver handles game over condition and cleanup
+func (g *Game) checkGameOver() {
 	if g.player == nil || !g.player.Active {
 		g.state = StateGameOver
 		g.nameInputMode = true

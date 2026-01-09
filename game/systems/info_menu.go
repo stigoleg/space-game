@@ -135,6 +135,9 @@ func (im *InfoMenu) Draw(screen *ebiten.Image, screenWidth, screenHeight int) {
 			{"Hunter", "Fast with tracking capability", im.spriteManager.HunterSprite},
 			{"Tank", "Slow, heavily armored, high damage", im.spriteManager.TankSprite},
 			{"Bomber", "Drops explosives in patterns", im.spriteManager.BomberSprite},
+			{"Sniper", "Locks on and shoots precise fast shots", im.spriteManager.SniperSprite},
+			{"Splitter", "Splits into 2 scouts when destroyed", im.spriteManager.SplitterSprite},
+			{"Shield Bearer", "Slow tank with regenerating shield", im.spriteManager.ShieldBearerSprite},
 		})
 
 	// POWER-UPS SECTION
@@ -146,8 +149,9 @@ func (im *InfoMenu) Draw(screen *ebiten.Image, screenWidth, screenHeight int) {
 		}{
 			{"Health", "Restore player HP", im.spriteManager.PowerUpHealthSprite},
 			{"Shield", "Replenish shield capacity", im.spriteManager.PowerUpShieldSprite},
-			{"Weapon", "Upgrade current weapon", im.spriteManager.PowerUpWeaponSprite},
+			{"Weapon", "Upgrade weapon to next level", im.spriteManager.PowerUpWeaponSprite},
 			{"Speed", "Boost movement speed", im.spriteManager.PowerUpSpeedSprite},
+			{"Mystery", "Random effect (60% good, 40% bad)", im.spriteManager.PowerUpMysterySprite},
 		})
 
 	// GAME MODES SECTION
@@ -165,26 +169,121 @@ func (im *InfoMenu) Draw(screen *ebiten.Image, screenWidth, screenHeight int) {
 	// TEXT-ONLY SECTIONS
 	y += 10
 
-	// WEAPONS SECTION
+	// WEAPON PROGRESSION SECTION
 	if y >= contentStartY-50 && y <= contentEndY {
-		DrawTextCentered(screen, ">> WEAPONS <<", screenWidth/2, y, 2, color.RGBA{150, 200, 255, 255})
+		DrawTextCentered(screen, ">> WEAPON PROGRESSION <<", screenWidth/2, y, 2, color.RGBA{150, 200, 255, 255})
 	}
 	y += 45
 
-	weaponLines := []string{
-		"Spread Shot - Multiple projectiles in cone",
-		"Laser - Focused high-damage beam",
-		"Shotgun - Close-range spread damage",
-		"Plasma - Area damage with splash",
-		"Homing - Seeks moving targets",
-		"Railgun - Piercing shot through enemies",
-		"Energy Lance - Sustained beam attack",
-		"Pulse - Burst area damage",
+	weaponProgressionLines := []string{
+		"Level 1 - Basic Gun: 1 shot forward",
+		"Level 2 - Dual Guns: 2 shots forward",
+		"Level 3 - Spread Shot: 4 shots (2 center + 2 angled)",
+		"Level 4 - Wide Spread: 6 shots (2 center + 4 angled)",
+		"Level 5 - Maximum Spread: 8 shots (2 center + 6 angled)",
+		"",
+		"After Level 5: Unlock special weapons!",
 	}
 
-	for _, line := range weaponLines {
+	for _, line := range weaponProgressionLines {
 		if y >= contentStartY && y <= contentEndY {
-			DrawTextCentered(screen, line, screenWidth/2, y, 1.2, color.RGBA{180, 200, 220, 255})
+			textColor := color.RGBA{180, 200, 220, 255}
+			if line == "" {
+				y += lineHeight - 30
+				continue
+			}
+			if line == "After Level 5: Unlock special weapons!" {
+				textColor = color.RGBA{255, 220, 100, 255}
+			}
+			DrawTextCentered(screen, line, screenWidth/2, y, 1.2, textColor)
+		}
+		y += lineHeight - 10
+	}
+	y += 15
+	im.maxScroll = float64(y - contentEndY)
+
+	// SPECIAL WEAPONS SECTION
+	if y >= contentStartY-50 && y <= contentEndY {
+		DrawTextCentered(screen, ">> SPECIAL WEAPONS <<", screenWidth/2, y, 2, color.RGBA{255, 180, 100, 255})
+	}
+	y += 45
+
+	specialWeaponLines := []string{
+		"Following Rockets - Homing missiles",
+		"Chain Lightning - Arcs between enemies",
+		"Flamethrower - Burning DoT damage",
+		"Ion Beam - Continuous piercing beam",
+		"Blaster - High damage single shots",
+		"Laser - Focused energy beam",
+		"Shotgun - Close-range spread",
+		"Plasma - Explosive projectiles",
+		"Homing - Target-seeking missiles",
+		"Railgun - Armor-piercing rounds",
+		"",
+		"Mixed Mode: Special weapon + 4 side blasters!",
+	}
+
+	for _, line := range specialWeaponLines {
+		if y >= contentStartY && y <= contentEndY {
+			textColor := color.RGBA{180, 200, 220, 255}
+			if line == "" {
+				y += lineHeight - 30
+				continue
+			}
+			if line == "Mixed Mode: Special weapon + 6 side blasters!" {
+				textColor = color.RGBA{255, 220, 100, 255}
+			}
+			DrawTextCentered(screen, line, screenWidth/2, y, 1.2, textColor)
+		}
+		y += lineHeight - 10
+	}
+	y += 15
+	im.maxScroll = float64(y - contentEndY)
+
+	// MYSTERY POWER-UP EFFECTS SECTION
+	if y >= contentStartY-50 && y <= contentEndY {
+		DrawTextCentered(screen, ">> MYSTERY POWER-UP EFFECTS <<", screenWidth/2, y, 2, color.RGBA{255, 150, 255, 255})
+	}
+	y += 45
+
+	if y >= contentStartY && y <= contentEndY {
+		DrawTextCentered(screen, "POSITIVE (60% chance):", screenWidth/2, y, 1.3, color.RGBA{100, 255, 100, 255})
+	}
+	y += lineHeight - 5
+
+	positiveEffects := []string{
+		"Super Weapon Upgrade - Instant weapon level up",
+		"Speed Boost - 2.5x speed for 8 seconds",
+		"Shield Overcharge - +30 shield instantly",
+		"Rapid Fire - 2.5x fire rate for 10 seconds",
+		"Invincibility - Immune to damage for 5 seconds",
+		"Score Multiplier - 3x score for 10 seconds",
+	}
+
+	for _, line := range positiveEffects {
+		if y >= contentStartY && y <= contentEndY {
+			DrawTextCentered(screen, line, screenWidth/2, y, 1.1, color.RGBA{150, 220, 150, 255})
+		}
+		y += lineHeight - 10
+	}
+	y += 10
+
+	if y >= contentStartY && y <= contentEndY {
+		DrawTextCentered(screen, "NEGATIVE (40% chance):", screenWidth/2, y, 1.3, color.RGBA{255, 100, 100, 255})
+	}
+	y += lineHeight - 5
+
+	negativeEffects := []string{
+		"Weapon Downgrade - Lose 1 weapon level",
+		"Engine Malfunction - 0.5x speed for 5 seconds",
+		"Shield Drain - Lose 20 shield points",
+		"Fire Rate Reduction - 0.5x fire rate for 5 sec",
+		"Control Reversal - Inverted controls for 4 sec",
+	}
+
+	for _, line := range negativeEffects {
+		if y >= contentStartY && y <= contentEndY {
+			DrawTextCentered(screen, line, screenWidth/2, y, 1.1, color.RGBA{220, 150, 150, 255})
 		}
 		y += lineHeight - 10
 	}

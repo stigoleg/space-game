@@ -1,12 +1,9 @@
 package entities
 
 import (
-	"image/color"
-	"math"
 	"math/rand"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 type Player struct {
@@ -18,9 +15,11 @@ type Player struct {
 	MaxHealth    int
 	Shield       int
 	MaxShield    int
-	WeaponLevel  int
-	FireRate     float64
-	FireCooldown float64
+	WeaponLevel  int             // Deprecated: kept for compatibility
+	WeaponMgr    *WeaponManager  // New weapon system
+	AbilityMgr   *AbilityManager // Ability system
+	FireRate     float64         // Deprecated: now in WeaponManager
+	FireCooldown float64         // Deprecated: now in WeaponManager
 	InvincTimer  float64
 	Active       bool
 	EngineGlow   float64
@@ -31,6 +30,7 @@ type Player struct {
 	ShieldRegenDelay  float64 // seconds before regen starts
 	LastDamageTime    float64 // when damage was last taken
 	PrevShield        int     // Track previous shield value for sound effects
+	ShieldRegenAccum  float64 // Accumulator for fractional shield regeneration
 
 	// Special attack mechanics
 	ChargeLevel       float64 // 0 to 1.0 (charge for special attack)
@@ -41,6 +41,19 @@ type Player struct {
 
 	// Thruster trail system
 	ThrusterTrail []struct{ X, Y, Life float64 }
+
+	// Mystery Power-Up temporary effects
+	SpeedBoostTimer      float64 // Speed boost duration
+	SpeedBoostMultiplier float64 // Speed multiplier (1.5 = +50%)
+	RapidFireTimer       float64 // Rapid fire duration
+	RapidFireMultiplier  float64 // Fire rate multiplier
+	ScoreMultiplierTimer float64 // Score multiplier duration
+	ScoreMultiplier      float64 // Score multiplier value
+	ControlReversed      bool    // Controls are reversed
+	ControlReversalTimer float64 // Duration of control reversal
+	SlowFireTimer        float64 // Slow fire duration
+	SlowFireMultiplier   float64 // Fire rate reduction
+	InvincibilityTimer   float64 // Invincibility from power-up
 }
 
 func NewPlayer(x, y float64) *Player {
@@ -54,6 +67,8 @@ func NewPlayer(x, y float64) *Player {
 		Shield:            50,
 		MaxShield:         50,
 		WeaponLevel:       1,
+		WeaponMgr:         NewWeaponManager(),  // Initialize weapon system
+		AbilityMgr:        NewAbilityManager(), // Initialize ability system
 		FireRate:          0.12,
 		Active:            true,
 		EngineGlow:        0,
@@ -68,25 +83,92 @@ func NewPlayer(x, y float64) *Player {
 		UltimateActive:    false,
 		UltimateTimer:     0,
 		ThrusterTrail:     make([]struct{ X, Y, Life float64 }, 0, 10),
+
+		// Mystery power-up effects
+		SpeedBoostTimer:      0,
+		SpeedBoostMultiplier: 1.0,
+		RapidFireTimer:       0,
+		RapidFireMultiplier:  1.0,
+		ScoreMultiplierTimer: 0,
+		ScoreMultiplier:      1.0,
+		ControlReversed:      false,
+		ControlReversalTimer: 0,
+		SlowFireTimer:        0,
+		SlowFireMultiplier:   1.0,
+		InvincibilityTimer:   0,
 	}
 }
 
 func (p *Player) Update(screenWidth, screenHeight int, gameTime float64) {
+	// Update weapon manager
+	p.WeaponMgr.Update()
+
+	// Apply fire rate modifiers from mystery power-ups to weapon manager
+	if p.RapidFireTimer > 0 {
+		// Temporarily boost current weapon fire rate
+		weapon := p.WeaponMgr.GetCurrentWeapon()
+		if weapon != nil && p.RapidFireTimer > 0 && p.RapidFireMultiplier > 1.0 {
+			// Apply multiplier (will be reset when timer expires)
+			// Note: This is applied dynamically in Shoot() function
+		}
+	}
+
+	// Update mystery power-up effect timers
+	if p.SpeedBoostTimer > 0 {
+		p.SpeedBoostTimer -= 1.0 / 60.0
+		if p.SpeedBoostTimer <= 0 {
+			p.SpeedBoostMultiplier = 1.0
+		}
+	}
+	if p.RapidFireTimer > 0 {
+		p.RapidFireTimer -= 1.0 / 60.0
+		if p.RapidFireTimer <= 0 {
+			p.RapidFireMultiplier = 1.0
+		}
+	}
+	if p.ScoreMultiplierTimer > 0 {
+		p.ScoreMultiplierTimer -= 1.0 / 60.0
+		if p.ScoreMultiplierTimer <= 0 {
+			p.ScoreMultiplier = 1.0
+		}
+	}
+	if p.ControlReversalTimer > 0 {
+		p.ControlReversalTimer -= 1.0 / 60.0
+		if p.ControlReversalTimer <= 0 {
+			p.ControlReversed = false
+		}
+	}
+	if p.SlowFireTimer > 0 {
+		p.SlowFireTimer -= 1.0 / 60.0
+		if p.SlowFireTimer <= 0 {
+			p.SlowFireMultiplier = 1.0
+		}
+	}
+	if p.InvincibilityTimer > 0 {
+		p.InvincibilityTimer -= 1.0 / 60.0
+	}
+
 	// Handle movement
 	p.VelX = 0
 	p.VelY = 0
 
+	// Apply control reversal if active
+	controlMult := 1.0
+	if p.ControlReversed {
+		controlMult = -1.0
+	}
+
 	if ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
-		p.VelY = -p.Speed
+		p.VelY = -p.Speed * controlMult
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
-		p.VelY = p.Speed
+		p.VelY = p.Speed * controlMult
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
-		p.VelX = -p.Speed
+		p.VelX = -p.Speed * controlMult
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
-		p.VelX = p.Speed
+		p.VelX = p.Speed * controlMult
 	}
 
 	// Normalize diagonal movement
@@ -94,6 +176,10 @@ func (p *Player) Update(screenWidth, screenHeight int, gameTime float64) {
 		p.VelX *= 0.707
 		p.VelY *= 0.707
 	}
+
+	// Apply speed boost/malfunction multiplier
+	p.VelX *= p.SpeedBoostMultiplier
+	p.VelY *= p.SpeedBoostMultiplier
 
 	p.X += p.VelX
 	p.Y += p.VelY
@@ -111,13 +197,12 @@ func (p *Player) Update(screenWidth, screenHeight int, gameTime float64) {
 		}
 	}
 
-	// Update thruster trail
-	for i := 0; i < len(p.ThrusterTrail); i++ {
+	// Update thruster trail (iterate backwards to avoid skipping elements on removal)
+	for i := len(p.ThrusterTrail) - 1; i >= 0; i-- {
 		p.ThrusterTrail[i].Life -= 1.0 / 60.0
 		p.ThrusterTrail[i].Y += 1.5 // Trail drifts down slightly
 		if p.ThrusterTrail[i].Life <= 0 {
 			p.ThrusterTrail = append(p.ThrusterTrail[:i], p.ThrusterTrail[i+1:]...)
-			i--
 		}
 	}
 
@@ -147,9 +232,17 @@ func (p *Player) Update(screenWidth, screenHeight int, gameTime float64) {
 	// Regenerate shield slowly - only after delay since last damage
 	timeSinceDamage := gameTime - p.LastDamageTime
 	if p.Shield < p.MaxShield && p.InvincTimer <= 0 && timeSinceDamage >= p.ShieldRegenDelay {
-		p.Shield++
-		if p.Shield > p.MaxShield {
-			p.Shield = p.MaxShield
+		// Use accumulator for fractional regeneration
+		p.ShieldRegenAccum += p.ShieldRegenRate
+		if p.ShieldRegenAccum >= 1.0 {
+			regenAmount := int(p.ShieldRegenAccum)
+			p.Shield += regenAmount
+			p.ShieldRegenAccum -= float64(regenAmount)
+
+			if p.Shield > p.MaxShield {
+				p.Shield = p.MaxShield
+				p.ShieldRegenAccum = 0 // Reset accumulator when maxed
+			}
 		}
 	}
 
@@ -186,67 +279,9 @@ func (p *Player) Update(screenWidth, screenHeight int, gameTime float64) {
 	}
 }
 
-func (p *Player) Shoot() []*Projectile {
-	if p.FireCooldown > 0 {
-		return nil
-	}
-	p.FireCooldown = p.FireRate
-
-	var projectiles []*Projectile
-
-	// Different colors for different weapon levels
-	var mainColor, glowColor color.RGBA
-	switch p.WeaponLevel {
-	case 1:
-		// Level 1: Cyan (basic)
-		mainColor = color.RGBA{0, 255, 255, 255}
-		glowColor = color.RGBA{0, 200, 255, 180}
-	case 2:
-		// Level 2: Green (improved)
-		mainColor = color.RGBA{0, 255, 136, 255}
-		glowColor = color.RGBA{50, 255, 150, 180}
-	case 3:
-		// Level 3: Yellow (advanced)
-		mainColor = color.RGBA{255, 255, 0, 255}
-		glowColor = color.RGBA{255, 220, 50, 180}
-	case 4:
-		// Level 4: Orange (superior)
-		mainColor = color.RGBA{255, 136, 0, 255}
-		glowColor = color.RGBA{255, 180, 50, 180}
-	default: // Level 5+
-		// Level 5: Purple (master)
-		mainColor = color.RGBA{170, 0, 255, 255}
-		glowColor = color.RGBA{200, 50, 255, 180}
-	}
-
-	switch p.WeaponLevel {
-	case 1:
-		projectiles = append(projectiles, NewProjectileWithColor(p.X, p.Y-p.Radius, 0, -12, true, 10, mainColor, glowColor))
-	case 2:
-		projectiles = append(projectiles, NewProjectileWithColor(p.X-10, p.Y-p.Radius, 0, -12, true, 10, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X+10, p.Y-p.Radius, 0, -12, true, 10, mainColor, glowColor))
-	case 3:
-		projectiles = append(projectiles, NewProjectileWithColor(p.X, p.Y-p.Radius, 0, -12, true, 12, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X-15, p.Y-p.Radius+5, -1, -11, true, 10, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X+15, p.Y-p.Radius+5, 1, -11, true, 10, mainColor, glowColor))
-	case 4:
-		projectiles = append(projectiles, NewProjectileWithColor(p.X-8, p.Y-p.Radius, 0, -13, true, 15, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X+8, p.Y-p.Radius, 0, -13, true, 15, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X-20, p.Y-p.Radius+5, -2, -11, true, 12, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X+20, p.Y-p.Radius+5, 2, -11, true, 12, mainColor, glowColor))
-	default: // Level 5+
-		projectiles = append(projectiles, NewProjectileWithColor(p.X, p.Y-p.Radius, 0, -14, true, 20, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X-12, p.Y-p.Radius, 0, -13, true, 15, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X+12, p.Y-p.Radius, 0, -13, true, 15, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X-25, p.Y-p.Radius+5, -2.5, -11, true, 12, mainColor, glowColor))
-		projectiles = append(projectiles, NewProjectileWithColor(p.X+25, p.Y-p.Radius+5, 2.5, -11, true, 12, mainColor, glowColor))
-	}
-
-	return projectiles
-}
-
 func (p *Player) TakeDamage(damage int, gameTime float64) {
-	if p.InvincTimer > 0 {
+	// Check both regular invincibility and mystery power-up invincibility
+	if p.InvincTimer > 0 || p.InvincibilityTimer > 0 {
 		return
 	}
 
@@ -260,251 +295,4 @@ func (p *Player) TakeDamage(damage int, gameTime float64) {
 	p.Health -= damage
 	p.LastDamageTime = gameTime
 	p.InvincTimer = p.InvincibilityTime // Use difficulty-dependent invincibility time
-}
-
-func (p *Player) ApplyPowerUp(puType PowerUpType) {
-	switch puType {
-	case PowerUpHealth:
-		p.Health = min(p.Health+30, p.MaxHealth)
-	case PowerUpShield:
-		p.Shield = min(p.Shield+30, p.MaxShield)
-	case PowerUpWeapon:
-		if p.WeaponLevel < 5 {
-			p.WeaponLevel++
-		}
-	case PowerUpSpeed:
-		p.Speed = math.Min(p.Speed+0.5, 10)
-	}
-}
-
-// ActivateUltimate triggers the ultimate ability
-func (p *Player) ActivateUltimate() bool {
-	if p.UltimateCharge >= p.MaxUltimateCharge {
-		p.UltimateActive = true
-		p.UltimateTimer = 3.0 // 3 seconds of ultimate effect
-		p.UltimateCharge = 0  // Reset charge
-		return true
-	}
-	return false
-}
-
-// GetChargedProjectiles returns projectiles with enhanced power based on charge level
-func (p *Player) GetChargedProjectiles() []*Projectile {
-	if p.FireCooldown > 0 {
-		return nil
-	}
-
-	var projectiles []*Projectile
-	chargeMultiplier := 1.0 + p.ChargeLevel*2.0 // Damage multiplier from charge
-	baseDamage := int(float64(10) * chargeMultiplier)
-
-	if p.ChargeLevel > 0.3 { // Only fire charged if significantly charged
-		// Charged shot (slower but more powerful)
-		p.FireCooldown = p.FireRate * 1.5 // Longer cooldown for charged shots
-
-		// Single powerful shot at full charge, or multiple weaker shots at lower charge
-		if p.ChargeLevel > 0.8 {
-			// Full charge - massive central shot
-			projectiles = append(projectiles, NewProjectile(p.X, p.Y-p.Radius, 0, -15, true, baseDamage))
-		} else if p.ChargeLevel > 0.5 {
-			// Medium charge - 3 shots
-			projectiles = append(projectiles, NewProjectile(p.X-10, p.Y-p.Radius, 0, -14, true, baseDamage-5))
-			projectiles = append(projectiles, NewProjectile(p.X, p.Y-p.Radius, 0, -15, true, baseDamage))
-			projectiles = append(projectiles, NewProjectile(p.X+10, p.Y-p.Radius, 0, -14, true, baseDamage-5))
-		} else {
-			// Light charge - standard spread
-			projectiles = append(projectiles, NewProjectile(p.X-8, p.Y-p.Radius, 0, -13, true, baseDamage-2))
-			projectiles = append(projectiles, NewProjectile(p.X+8, p.Y-p.Radius, 0, -13, true, baseDamage-2))
-		}
-	} else {
-		// Regular shooting if not charged enough
-		p.FireCooldown = p.FireRate
-
-		switch p.WeaponLevel {
-		case 1:
-			projectiles = append(projectiles, NewProjectile(p.X, p.Y-p.Radius, 0, -12, true, 10))
-		case 2:
-			projectiles = append(projectiles, NewProjectile(p.X-10, p.Y-p.Radius, 0, -12, true, 10))
-			projectiles = append(projectiles, NewProjectile(p.X+10, p.Y-p.Radius, 0, -12, true, 10))
-		case 3:
-			projectiles = append(projectiles, NewProjectile(p.X, p.Y-p.Radius, 0, -12, true, 12))
-			projectiles = append(projectiles, NewProjectile(p.X-15, p.Y-p.Radius+5, -1, -11, true, 10))
-			projectiles = append(projectiles, NewProjectile(p.X+15, p.Y-p.Radius+5, 1, -11, true, 10))
-		case 4:
-			projectiles = append(projectiles, NewProjectile(p.X-8, p.Y-p.Radius, 0, -13, true, 15))
-			projectiles = append(projectiles, NewProjectile(p.X+8, p.Y-p.Radius, 0, -13, true, 15))
-			projectiles = append(projectiles, NewProjectile(p.X-20, p.Y-p.Radius+5, -2, -11, true, 12))
-			projectiles = append(projectiles, NewProjectile(p.X+20, p.Y-p.Radius+5, 2, -11, true, 12))
-		default: // Level 5+
-			projectiles = append(projectiles, NewProjectile(p.X, p.Y-p.Radius, 0, -14, true, 20))
-			projectiles = append(projectiles, NewProjectile(p.X-12, p.Y-p.Radius, 0, -13, true, 15))
-			projectiles = append(projectiles, NewProjectile(p.X+12, p.Y-p.Radius, 0, -13, true, 15))
-			projectiles = append(projectiles, NewProjectile(p.X-25, p.Y-p.Radius+5, -2.5, -11, true, 12))
-			projectiles = append(projectiles, NewProjectile(p.X+25, p.Y-p.Radius+5, 2.5, -11, true, 12))
-		}
-	}
-
-	p.ChargeLevel = 0 // Reset charge after firing
-	return projectiles
-}
-
-func (p *Player) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
-	// Blink when invincible
-	if p.InvincTimer > 0 && int(p.InvincTimer*10)%2 == 0 {
-		return
-	}
-
-	// Simple screen coordinates with shake
-	x := float32(p.X + shakeX)
-	y := float32(p.Y + shakeY)
-
-	// Draw thruster trail particles
-	for _, trail := range p.ThrusterTrail {
-		lifeRatio := trail.Life / 0.5
-		alpha := uint8(150 * lifeRatio)
-		trailColor := color.RGBA{100, 150, 255, alpha}
-		trailGlowColor := color.RGBA{150, 200, 255, uint8(100 * lifeRatio)}
-
-		trailX := float32(trail.X + shakeX)
-		trailY := float32(trail.Y + shakeY)
-		trailSize := float32(3 * (1 - (1-lifeRatio)*(1-lifeRatio)))
-
-		// Draw glow
-		vector.DrawFilledCircle(screen, trailX, trailY, trailSize*1.8, trailGlowColor, true)
-		// Draw particle
-		vector.DrawFilledCircle(screen, trailX, trailY, trailSize, trailColor, true)
-	}
-
-	// Draw shadow beneath ship (depth indicator)
-	shadowColor := color.RGBA{20, 20, 30, 100}
-	shadowSize := float32(p.Radius) * 0.5
-	vector.DrawFilledCircle(screen, x, y+float32(p.Radius)+shadowSize, shadowSize, shadowColor, true)
-
-	// Draw polygon-based ship - triangular arrow shape
-	shipColor := color.RGBA{100, 160, 220, 255}
-	radius := float32(p.Radius)
-
-	// Main hull - triangle pointing up
-	// Top vertex (nose)
-	topX := x
-	topY := y - radius*1.1
-
-	// Bottom-left wing
-	leftX := x - radius*0.8
-	leftY := y + radius*0.7
-
-	// Bottom-right wing
-	rightX := x + radius*0.8
-	rightY := y + radius*0.7
-
-	// Draw main hull as filled polygon
-	// Using triangles (vector.DrawFilledRect for simpler polygon effects)
-	drawTriangle(screen, topX, topY, leftX, leftY, rightX, rightY, shipColor)
-
-	// Draw cockpit window (diamond shape)
-	cockpitColor := color.RGBA{220, 240, 255, 255}
-	vector.DrawFilledCircle(screen, x, y-radius*0.4, 5, cockpitColor, true)
-
-	// Draw engine thrusters (animated flame effect)
-	engineIntensity := float32(0.5 + 0.3*math.Sin(p.EngineGlow))
-	engineTrailColor1 := color.RGBA{100, 150, 255, 200}
-	engineTrailColor2 := color.RGBA{255, 150, 100, 180}
-
-	// Left engine
-	vector.DrawFilledCircle(screen, leftX+radius*0.3, leftY+radius*0.5, float32(6)*engineIntensity, engineTrailColor1, true)
-	vector.DrawFilledCircle(screen, leftX+radius*0.3, leftY+radius*0.8, float32(3)*engineIntensity, engineTrailColor2, true)
-
-	// Right engine
-	vector.DrawFilledCircle(screen, rightX-radius*0.3, rightY+radius*0.5, float32(6)*engineIntensity, engineTrailColor1, true)
-	vector.DrawFilledCircle(screen, rightX-radius*0.3, rightY+radius*0.8, float32(3)*engineIntensity, engineTrailColor2, true)
-
-	// Center engine
-	vector.DrawFilledCircle(screen, x, y+radius*0.6, float32(5)*engineIntensity, engineTrailColor1, true)
-	vector.DrawFilledCircle(screen, x, y+radius*1.0, float32(2)*engineIntensity, engineTrailColor2, true)
-
-	// Draw wing accents
-	wingAccentColor := color.RGBA{80, 140, 200, 255}
-	vector.StrokeCircle(screen, leftX, leftY, radius*0.3, 1.5, wingAccentColor, true)
-	vector.StrokeCircle(screen, rightX, rightY, radius*0.3, 1.5, wingAccentColor, true)
-
-	// Shield effect
-	if p.Shield > 0 {
-		shieldAlpha := uint8(50 + float64(p.Shield)/float64(p.MaxShield)*100)
-		shieldColor := color.RGBA{100, 200, 255, shieldAlpha}
-		vector.StrokeCircle(screen, x, y, radius*1.0, 2, shieldColor, true)
-	}
-
-	// Nose highlight for depth
-	highlightColor := color.RGBA{200, 230, 255, 200}
-	vector.DrawFilledCircle(screen, topX, topY+radius*0.2, 4, highlightColor, true)
-
-	// Draw charge indicator (glow around ship when charging)
-	if p.ChargeLevel > 0.1 {
-		chargeAlpha := uint8(100 + float64(p.ChargeLevel)*155)
-		chargeColor := color.RGBA{255, uint8(100 + float64(p.ChargeLevel)*155), 100, chargeAlpha}
-		chargeRadius := radius*1.2 + float32(p.ChargeLevel)*10
-		vector.StrokeCircle(screen, x, y, chargeRadius, 2, chargeColor, true)
-
-		// Inner charge aura
-		innerChargeColor := color.RGBA{255, 200, 100, uint8(50 + float64(p.ChargeLevel)*100)}
-		vector.DrawFilledCircle(screen, x, y, radius*1.1, innerChargeColor, true)
-	}
-
-	// Draw ultimate indicator (star glow)
-	if p.UltimateCharge > 0.5 {
-		ultimateAlpha := uint8(100 + float64(p.UltimateCharge)*155)
-		ultimateColor := color.RGBA{255, 50 + uint8(float64(p.UltimateCharge)*200), 255, ultimateAlpha}
-		ultimateRadius := radius + float32(p.UltimateCharge)*8
-		vector.StrokeCircle(screen, x, y, ultimateRadius, 3, ultimateColor, true)
-	}
-
-	// Ultimate active effect - intense glow
-	if p.UltimateActive {
-		pulseIntensity := float32(0.5 + 0.5*math.Sin(p.UltimateTimer*math.Pi))
-		ultimateGlowColor := color.RGBA{200, 100, 255, uint8(200 * pulseIntensity)}
-		vector.DrawFilledCircle(screen, x, y, radius*1.3*pulseIntensity, ultimateGlowColor, true)
-	}
-}
-
-// Helper function to draw a filled triangle
-func drawTriangle(screen *ebiten.Image, x1, y1, x2, y2, x3, y3 float32, col color.Color) {
-	// Draw using three filled circles connected - crude but effective
-	// For better polygon support, we can use vector paths or draw filled polygons another way
-
-	// Create paths for triangle edges with thick lines to simulate fill
-	// This creates a filled triangle effect
-	const steps = 20
-	for i := 0; i < steps; i++ {
-		t := float32(i) / float32(steps)
-		// Top to left edge
-		edgeX1 := x1*(1-t) + x2*t
-		edgeY1 := y1*(1-t) + y2*t
-
-		// Top to right edge
-		edgeX2 := x1*(1-t) + x3*t
-		edgeY2 := y1*(1-t) + y3*t
-
-		// Draw line between edges
-		radius := float32(math.Abs(float64(edgeX2-edgeX1)) / 2)
-		if radius > 0.5 {
-			midX := (edgeX1 + edgeX2) / 2
-			midY := (edgeY1 + edgeY2) / 2
-			vector.DrawFilledCircle(screen, midX, midY, radius+1, col, true)
-		}
-	}
-
-	// Draw bottom edge
-	for i := 0; i < steps; i++ {
-		t := float32(i) / float32(steps)
-		edgeX1 := x2*(1-t) + x3*t
-		edgeY1 := y2*(1-t) + y3*t
-		vector.DrawFilledCircle(screen, edgeX1, edgeY1, 2, col, true)
-	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

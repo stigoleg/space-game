@@ -71,19 +71,19 @@ func NewBoss(screenWidth int, bossLevel int) *Boss {
 		baseDamage = 20
 		patternCount = 6
 		speedMult = 1.2
-		attackRateMult = 1.3
+		attackRateMult = 1.1 // Reduced from 1.3 to 1.1 for more balanced difficulty
 	case 3: // Wave 15 - Advanced boss
 		health = 1500
 		baseDamage = 25
 		patternCount = 8
 		speedMult = 1.4
-		attackRateMult = 1.6
+		attackRateMult = 1.3 // Reduced from 1.6 to 1.3 for more balanced difficulty
 	default: // Wave 20+ - Extreme boss
 		health = 2000 + (bossLevel-4)*500
 		baseDamage = 30
 		patternCount = 10
-		speedMult = 1.6 + float64(bossLevel-4)*0.2
-		attackRateMult = 2.0 + float64(bossLevel-4)*0.2
+		speedMult = 1.6 + float64(bossLevel-4)*0.1      // Reduced speed scaling
+		attackRateMult = 1.5 + float64(bossLevel-4)*0.1 // Reduced from 2.0 base and 0.2 scaling
 	}
 
 	return &Boss{
@@ -95,7 +95,7 @@ func NewBoss(screenWidth int, bossLevel int) *Boss {
 		Points:          10000 * bossLevel,
 		Active:          true,
 		Phase:           BossPhaseEntering,
-		EntryY:          80, // Changed from 120 to 80 - starts attacking earlier
+		EntryY:          150, // Boss enters further into screen so HP bar is visible
 		BossLevel:       bossLevel,
 		Speed:           speedMult,
 		AttackRate:      attackRateMult,
@@ -114,102 +114,10 @@ func (b *Boss) Update(playerX, playerY float64, screenWidth, screenHeight int) [
 
 	switch b.Phase {
 	case BossPhaseEntering:
-		// Move into position
-		b.Y += 1
-
-		// Check proximity to player - if player is close, start attacking immediately
-		distanceToPlayer := math.Abs(b.X - playerX)
-		const proximityRange = 200.0 // Distance to trigger immediate attack
-
-		if b.Y >= b.EntryY {
-			// Reached target position
-			b.Y = b.EntryY
-			b.Phase = BossPhaseAttacking
-			b.TelegraphTimer = 0.5 // 0.5 second telegraph warning
-			b.TelegraphActive = true
-		} else if b.Y >= 0 && distanceToPlayer < proximityRange {
-			// Player is close while we're still entering - switch to attacking early
-			b.Phase = BossPhaseAttacking
-			b.TelegraphTimer = 0.3 // Shorter telegraph if player gets too close
-			b.TelegraphActive = true
-		}
+		b.updateEntryPhase(playerX)
 
 	case BossPhaseAttacking, BossPhaseRage, BossPhaseSpecialAttack:
-		// Handle telegraph timer
-		if b.TelegraphActive {
-			b.TelegraphTimer -= 1.0 / 60.0
-			if b.TelegraphTimer <= 0 {
-				b.TelegraphActive = false
-			}
-		}
-
-		// Horizontal movement - track player loosely (scaled by boss level)
-		targetX := playerX
-		dx := targetX - b.X
-		b.VelX = dx * 0.01 * b.Speed
-		if b.Phase == BossPhaseRage {
-			b.VelX *= 1.5
-		}
-		b.X += b.VelX
-
-		// Keep in bounds
-		margin := b.Radius + 20
-		if b.X < margin {
-			b.X = margin
-		}
-		if b.X > float64(screenWidth)-margin {
-			b.X = float64(screenWidth) - margin
-		}
-
-		// Attack patterns with difficulty scaling
-		// Don't attack during telegraph warning
-		if !b.TelegraphActive {
-			b.AttackTimer += 1.0 / 60.0
-
-			// Base attack interval decreases with boss level
-			attackInterval := 1.0 / b.AttackRate // Changed from 1.5 to 1.0 for faster initial attacks
-			if b.Phase == BossPhaseRage {
-				attackInterval *= 0.6 // Much faster in rage mode
-			}
-			if b.Phase == BossPhaseSpecialAttack {
-				attackInterval *= 0.5 // Even faster in special attack
-			}
-
-			if b.AttackTimer >= attackInterval {
-				b.AttackTimer = 0
-				b.AttackPattern = (b.AttackPattern + 1) % b.PatternCount
-				projectiles = b.executeAttack(playerX, playerY)
-			}
-		}
-
-		// Phase transitions based on health percentage
-		healthPercent := float64(b.Health) / float64(b.MaxHealth)
-
-		// Enter special attack at 60% health (for boss level 2+)
-		if b.BossLevel >= 2 && b.Phase == BossPhaseAttacking && healthPercent < 0.6 && healthPercent > 0.3 {
-			b.Phase = BossPhaseSpecialAttack
-			b.SpecialTimer = 0
-			b.SpecialPhase = 0
-		}
-
-		// Enter rage mode at 30% health
-		if (b.Phase == BossPhaseAttacking || b.Phase == BossPhaseSpecialAttack) && healthPercent < 0.3 {
-			b.Phase = BossPhaseRage
-		}
-
-		// Shield mechanic (varies with boss level)
-		b.ShieldTimer += 1.0 / 60.0
-		shieldInterval := 5.0 / (float64(b.BossLevel) * 0.5) // More frequent at higher levels
-		shieldDuration := 2.0 - float64(b.BossLevel)*0.2     // Shorter duration at higher levels
-
-		if b.ShieldTimer >= shieldInterval && !b.ShieldUp {
-			b.ShieldUp = true
-			b.ShieldTimer = 0
-		}
-		if b.ShieldUp && b.ShieldTimer >= shieldDuration {
-			b.ShieldUp = false
-			b.ShieldTimer = 0
-		}
+		projectiles = b.updateAttackingPhase(playerX, playerY, screenWidth)
 
 	case BossPhaseDying:
 		// Explosion sequence handled elsewhere
@@ -219,144 +127,32 @@ func (b *Boss) Update(playerX, playerY float64, screenWidth, screenHeight int) [
 }
 
 func (b *Boss) executeAttack(playerX, playerY float64) []*Projectile {
-	var projectiles []*Projectile
-
-	// Use different patterns based on boss level
 	pattern := b.AttackPattern % b.PatternCount
 
 	switch pattern {
 	case 0:
-		// Spread shot - more shots for higher levels
-		spread := 3
-		if b.BossLevel >= 2 {
-			spread = 5
-		}
-		for i := -spread; i <= spread; i++ {
-			angle := math.Pi/2 + float64(i)*0.2
-			projectiles = append(projectiles, b.createProjectile(angle))
-		}
-
+		return b.executeSpreadShot()
 	case 1:
-		// Aimed shot at player with side shots
-		dx := playerX - b.X
-		dy := playerY - b.Y
-		dist := math.Sqrt(dx*dx + dy*dy)
-		if dist > 0 {
-			velX := (dx / dist) * 7
-			velY := (dy / dist) * 7
-			projectiles = append(projectiles, NewProjectile(b.X, b.Y+b.Radius, velX, velY, false, b.Damage))
-
-			// Add more side shots for higher levels
-			sideCount := 1
-			if b.BossLevel >= 3 {
-				sideCount = 2
-			}
-			for s := 1; s <= sideCount; s++ {
-				offsetX := float64(s * 30)
-				projectiles = append(projectiles, NewProjectile(b.X-offsetX, b.Y+b.Radius, velX*0.8, velY*0.8, false, b.Damage-5))
-				projectiles = append(projectiles, NewProjectile(b.X+offsetX, b.Y+b.Radius, velX*0.8, velY*0.8, false, b.Damage-5))
-			}
-		}
-
+		return b.executeAimedShot(playerX, playerY)
 	case 2:
-		// Circle burst - more projectiles for higher levels
-		count := 12
-		if b.BossLevel >= 2 {
-			count = 16
-		}
-		if b.BossLevel >= 4 {
-			count = 20
-		}
-		for i := 0; i < count; i++ {
-			angle := float64(i) * (2 * math.Pi) / float64(count)
-			projectiles = append(projectiles, b.createProjectile(angle))
-		}
-
+		return b.executeCircularBurst()
 	case 3:
-		// Laser lines - more lines for higher levels
-		count := 5
-		if b.BossLevel >= 2 {
-			count = 7
-		}
-		for i := 0; i < count; i++ {
-			offsetX := float64(i-(count-1)/2) * 40
-			projectiles = append(projectiles, NewProjectile(b.X+offsetX, b.Y+b.Radius, 0, 6, false, b.Damage))
-		}
-
+		return b.executeLaserLines()
 	case 4:
-		// Spiral pattern (available for boss level 2+)
-		if b.BossLevel >= 2 {
-			for i := 0; i < 8; i++ {
-				angle := float64(i)*math.Pi/4 + b.AnimTimer*0.1
-				velX := math.Cos(angle) * 5
-				velY := math.Sin(angle) * 5
-				projectiles = append(projectiles, NewProjectile(b.X, b.Y, velX, velY, false, b.Damage-5))
-			}
-		}
-
+		return b.executeSpiralPattern()
 	case 5:
-		// Double arc pattern (available for boss level 2+)
-		if b.BossLevel >= 2 {
-			for i := -4; i <= 4; i++ {
-				angle := math.Pi/2 + float64(i)*0.15
-				velX := math.Cos(angle) * 6
-				velY := math.Sin(angle) * 6
-				projectiles = append(projectiles, NewProjectile(b.X-40, b.Y+b.Radius, velX, velY, false, b.Damage-5))
-				projectiles = append(projectiles, NewProjectile(b.X+40, b.Y+b.Radius, velX, velY, false, b.Damage-5))
-			}
-		}
-
+		return b.executeDoubleArc()
 	case 6:
-		// Tracking spiral (available for boss level 3+)
-		if b.BossLevel >= 3 {
-			for i := 0; i < 6; i++ {
-				angle := float64(i)*math.Pi/3 + b.AnimTimer*0.2
-				velX := math.Cos(angle) * 5.5
-				velY := math.Sin(angle) * 5.5
-				projectiles = append(projectiles, NewProjectile(b.X, b.Y, velX, velY, false, b.Damage))
-			}
-		}
-
+		return b.executeTrackingSpiral()
 	case 7:
-		// Wave pattern (available for boss level 3+)
-		if b.BossLevel >= 3 {
-			waveCount := 10
-			for i := 0; i < waveCount; i++ {
-				offsetX := float64(i-(waveCount-1)/2) * 30
-				waveY := math.Sin(float64(i)*math.Pi/5) * 50
-				projectiles = append(projectiles, NewProjectile(b.X+offsetX, b.Y+waveY, 0, 6, false, b.Damage-5))
-			}
-		}
-
+		return b.executeWavePattern()
 	case 8:
-		// Cross burst (available for boss level 4+)
-		if b.BossLevel >= 4 {
-			for i := 0; i < 4; i++ {
-				angle := float64(i)*math.Pi/2 + math.Pi/4
-				for j := 0; j < 4; j++ {
-					ratio := float64(j) / 3.0
-					vel := 4.0 + ratio*3.0
-					velX := math.Cos(angle) * vel
-					velY := math.Sin(angle) * vel
-					projectiles = append(projectiles, NewProjectile(b.X, b.Y+b.Radius, velX, velY, false, b.Damage))
-				}
-			}
-		}
-
+		return b.executeCrossBurst()
 	case 9:
-		// Chaos pattern (available for boss level 4+)
-		if b.BossLevel >= 4 {
-			for i := 0; i < 12; i++ {
-				angle := float64(i)*math.Pi/6 + b.AnimTimer*0.3
-				speed := 4.0 + math.Sin(b.AnimTimer+float64(i))*2.0
-				velX := math.Cos(angle) * speed
-				velY := math.Sin(angle) * speed
-				projectiles = append(projectiles, NewProjectile(b.X, b.Y, velX, velY, false, b.Damage))
-			}
-		}
+		return b.executeChaosPattern()
 	}
 
-	return projectiles
+	return nil
 }
 
 // Helper function to create projectiles with proper damage scaling
@@ -394,33 +190,8 @@ func (b *Boss) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 	pulse := float32(1.0 + 0.05*math.Sin(b.AnimTimer*3))
 	radius := float32(b.Radius) * pulse
 
-	// Color based on phase and difficulty level
-	var mainColor, coreColor, glowColor color.RGBA
-
-	// Base color changes with boss level
-	colorIntensity := uint8(200 - b.BossLevel*20) // Get darker at higher levels
-
-	switch b.Phase {
-	case BossPhaseEntering, BossPhaseAttacking:
-		mainColor = color.RGBA{colorIntensity, uint8(80 - b.BossLevel*10), 60, 255}
-		coreColor = color.RGBA{255, 150, 100, 255}
-		glowColor = color.RGBA{255, 80, 60, 100}
-	case BossPhaseSpecialAttack:
-		// Purple glow for special attack phase
-		mainColor = color.RGBA{150, 80, 200, 255}
-		coreColor = color.RGBA{200, 150, 255, 255}
-		glowColor = color.RGBA{200, 100, 255, 120}
-	case BossPhaseRage:
-		// Flashing red in rage
-		intensity := uint8(220 + 35*math.Sin(b.AnimTimer*10))
-		mainColor = color.RGBA{intensity, 60, 40, 255}
-		coreColor = color.RGBA{255, 180, 80, 255}
-		glowColor = color.RGBA{255, 130, 80, 120}
-	case BossPhaseDying:
-		mainColor = color.RGBA{120, 120, 120, 200}
-		coreColor = color.RGBA{255, 220, 80, 255}
-		glowColor = color.RGBA{255, 220, 150, 150}
-	}
+	// Get colors based on phase
+	mainColor, coreColor, glowColor := b.getPhaseColors()
 
 	// Draw shadow
 	shadowColor := color.RGBA{20, 20, 30, 100}
@@ -453,30 +224,47 @@ func (b *Boss) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 	// Highlight (3D effect)
 	vector.DrawFilledCircle(screen, x-radius*0.3, y-radius*0.3, radius*0.25, color.RGBA{mainColor.R + 50, mainColor.G + 50, mainColor.B + 50, 200}, true)
 
-	// Telegraph warning effect - pulsing red rings before first attack
+	// Telegraph warning effect
 	if b.TelegraphActive {
-		telegraphIntensity := float32(b.TelegraphTimer / 0.5) // Fade as timer decreases
-		if telegraphIntensity > 1.0 {
-			telegraphIntensity = 1.0
-		}
-		telegraphAlpha := uint8(180 * telegraphIntensity)
-		telegraphPulse := float32(1.0 + 0.3*math.Sin(b.AnimTimer*12))
-
-		// Draw warning rings
-		telegraphColor := color.RGBA{255, 220, 0, telegraphAlpha} // Yellow warning
-		vector.StrokeCircle(screen, x, y, radius+20*telegraphPulse, 3, telegraphColor, true)
-		vector.StrokeCircle(screen, x, y, radius+30*telegraphPulse, 2, color.RGBA{255, 180, 0, telegraphAlpha / 2}, true)
+		b.drawTelegraphWarning(screen, x, y, radius)
 	}
 
 	// Shield effect
 	if b.ShieldUp {
-		shieldPulse := float32(0.8 + 0.2*math.Sin(b.AnimTimer*8))
-		shieldColor := color.RGBA{100, 200, 255, uint8(150 * shieldPulse)}
-		vector.StrokeCircle(screen, x, y, radius+30, 4, shieldColor, true)
-		vector.StrokeCircle(screen, x, y, radius+35, 2, color.RGBA{150, 220, 255, 100}, true)
+		b.drawShieldEffect(screen, x, y, radius)
 	}
 
 	// Health bar
+	b.drawHealthBar(screen, x, y, radius)
+
+	// Boss level indicator
+	b.drawLevelIndicator(screen, x, y, radius)
+}
+
+// drawTelegraphWarning draws the telegraph warning rings
+func (b *Boss) drawTelegraphWarning(screen *ebiten.Image, x, y, radius float32) {
+	telegraphIntensity := float32(b.TelegraphTimer / 0.5)
+	if telegraphIntensity > 1.0 {
+		telegraphIntensity = 1.0
+	}
+	telegraphAlpha := uint8(180 * telegraphIntensity)
+	telegraphPulse := float32(1.0 + 0.3*math.Sin(b.AnimTimer*12))
+
+	telegraphColor := color.RGBA{255, 220, 0, telegraphAlpha}
+	vector.StrokeCircle(screen, x, y, radius+20*telegraphPulse, 3, telegraphColor, true)
+	vector.StrokeCircle(screen, x, y, radius+30*telegraphPulse, 2, color.RGBA{255, 180, 0, telegraphAlpha / 2}, true)
+}
+
+// drawShieldEffect draws the shield effect
+func (b *Boss) drawShieldEffect(screen *ebiten.Image, x, y, radius float32) {
+	shieldPulse := float32(0.8 + 0.2*math.Sin(b.AnimTimer*8))
+	shieldColor := color.RGBA{100, 200, 255, uint8(150 * shieldPulse)}
+	vector.StrokeCircle(screen, x, y, radius+30, 4, shieldColor, true)
+	vector.StrokeCircle(screen, x, y, radius+35, 2, color.RGBA{150, 220, 255, 100}, true)
+}
+
+// drawHealthBar draws the health bar above the boss
+func (b *Boss) drawHealthBar(screen *ebiten.Image, x, y, radius float32) {
 	barWidth := float32(140)
 	barHeight := float32(12)
 	healthRatio := float32(b.Health) / float32(b.MaxHealth)
@@ -487,23 +275,18 @@ func (b *Boss) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 	// Background
 	vector.DrawFilledRect(screen, barX, barY, barWidth, barHeight, color.RGBA{30, 30, 30, 200}, true)
 	// Health fill
-	healthColor := color.RGBA{255, 80, 60, 255}
-	if b.Phase == BossPhaseRage {
-		healthColor = color.RGBA{255, 180, 80, 255}
-	}
-	if b.Phase == BossPhaseSpecialAttack {
-		healthColor = color.RGBA{200, 100, 255, 255}
-	}
+	healthColor := b.getHealthBarColor()
 	vector.DrawFilledRect(screen, barX, barY, barWidth*healthRatio, barHeight, healthColor, true)
 	// Border
 	vector.StrokeRect(screen, barX, barY, barWidth, barHeight, 2, color.RGBA{255, 255, 255, 150}, true)
+}
 
-	// Boss level indicator (stars or rings)
+// drawLevelIndicator draws the boss level stars
+func (b *Boss) drawLevelIndicator(screen *ebiten.Image, x, y, radius float32) {
 	levelIndicatorY := y - radius - 65
 	for i := 0; i < b.BossLevel; i++ {
 		starX := x - float32((b.BossLevel-1)*8) + float32(i*16)
 		starSize := float32(6)
-		// Draw star/diamond shape
 		vector.DrawFilledCircle(screen, starX, levelIndicatorY, starSize, color.RGBA{255, 215, 0, 255}, true)
 	}
 }
