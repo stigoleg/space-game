@@ -73,14 +73,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libc6-dev libgl1-mesa-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libxxf86vm-dev libasound2-dev pkg-config
       
+      - name: Validate secrets
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.GIST_ID }}" ]; then
+            echo "ERROR: GIST_ID secret is not set!"
+            echo "Please add GIST_ID to your GitHub repository secrets"
+            exit 1
+          fi
+          if [ -z "${{ secrets.GH_GIST_TOKEN }}" ]; then
+            echo "ERROR: GH_GIST_TOKEN secret is not set!"
+            echo "Please add GH_GIST_TOKEN to your GitHub repository secrets"
+            exit 1
+          fi
+          echo "✓ All required secrets are present"
+          echo "  GIST_ID: ${GIST_ID:0:8}..." 
+          echo "  GH_GIST_TOKEN: ${GH_GIST_TOKEN:0:8}..."
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GH_GIST_TOKEN: ${{ secrets.GH_GIST_TOKEN }}
+      
       - name: Create .env file from secrets
         shell: bash
         run: |
-          cat > .env << EOF
+          cat > .env << 'EOF'
           GIST_ID=${{ secrets.GIST_ID }}
-          GITHUB_TOKEN=${{ secrets.GH_GIST_TOKEN }}
+          GH_GIST_TOKEN=${{ secrets.GH_GIST_TOKEN }}
           GIST_ENABLED=true
           EOF
+          echo "Created .env file with secrets"
+          echo "Verifying .env file contents (redacted):"
+          sed 's/=.*/=***/' .env
         
       - name: Build binary
         env:
@@ -105,6 +128,10 @@ jobs:
           
           # Copy binary
           cp "$BINARY_NAME" "$APP_DIR/MacOS/"
+          
+          # Copy .env file with secrets to Resources
+          cp .env "$APP_DIR/Resources/.env"
+          echo "✓ Copied .env file to app bundle"
           
           # Copy assets
           if [ -d "assets" ]; then
@@ -172,6 +199,10 @@ jobs:
           # Copy binary
           cp "$BINARY_NAME" "$APP_DIR/MacOS/"
           
+          # Copy .env file with secrets to Resources
+          cp .env "$APP_DIR/Resources/.env"
+          echo "✓ Copied .env file to app bundle"
+          
           # Copy assets
           if [ -d "assets" ]; then
             cp -r assets/* "$APP_DIR/Resources/assets/" 2>/dev/null || true
@@ -227,9 +258,11 @@ jobs:
         run: |
           mkdir -p stellar-siege-linux
           cp stellar-siege stellar-siege-linux/
+          cp .env stellar-siege-linux/.env
           cp -r assets stellar-siege-linux/ 2>/dev/null || true
           cp -r config stellar-siege-linux/ 2>/dev/null || true
           cp .env.example stellar-siege-linux/.env.example
+          echo "✓ Packaged Linux release with .env file"
           tar -czf stellar-siege-linux-amd64.tar.gz stellar-siege-linux
       
       - name: Package Windows release
@@ -238,9 +271,11 @@ jobs:
         run: |
           mkdir -p stellar-siege-windows
           cp stellar-siege.exe stellar-siege-windows/
+          cp .env stellar-siege-windows/.env
           cp -r assets stellar-siege-windows/ 2>/dev/null || true
           cp -r config stellar-siege-windows/ 2>/dev/null || true
           cp .env.example stellar-siege-windows/.env.example
+          echo "✓ Packaged Windows release with .env file"
           7z a -tzip stellar-siege-windows-amd64.zip stellar-siege-windows
       
       - name: Upload artifacts - macOS Intel

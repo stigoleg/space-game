@@ -20,7 +20,7 @@ func LoadGistConfig(filePath string) (*GistConfig, error) {
 	// First, try to load from environment variables
 	config := &GistConfig{
 		GistID:      os.Getenv("GIST_ID"),
-		GitHubToken: os.Getenv("GITHUB_TOKEN"),
+		GitHubToken: os.Getenv("GH_GIST_TOKEN"),
 		Enabled:     parseEnvBool("GIST_ENABLED", false),
 	}
 
