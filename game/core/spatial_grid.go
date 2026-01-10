@@ -18,6 +18,12 @@ type SpatialGrid struct {
 	projectileGrid [][]GridCell
 	powerupGrid    [][]GridCell
 	asteroidGrid   [][]GridCell
+
+	// Reusable maps for deduplication (to avoid per-query allocations)
+	seenEnemies     map[*entities.Enemy]bool
+	seenProjectiles map[*entities.Projectile]bool
+	seenPowerups    map[*entities.PowerUp]bool
+	seenAsteroids   map[*entities.Asteroid]bool
 }
 
 // GridCell holds entities in a specific grid cell
@@ -34,11 +40,15 @@ func NewSpatialGrid(screenWidth, screenHeight, cellSize float64) *SpatialGrid {
 	gridH := int(screenHeight/cellSize) + 1
 
 	sg := &SpatialGrid{
-		cellSize:   cellSize,
-		gridWidth:  gridW,
-		gridHeight: gridH,
-		screenW:    screenWidth,
-		screenH:    screenHeight,
+		cellSize:        cellSize,
+		gridWidth:       gridW,
+		gridHeight:      gridH,
+		screenW:         screenWidth,
+		screenH:         screenHeight,
+		seenEnemies:     make(map[*entities.Enemy]bool, 64),
+		seenProjectiles: make(map[*entities.Projectile]bool, 128),
+		seenPowerups:    make(map[*entities.PowerUp]bool, 16),
+		seenAsteroids:   make(map[*entities.Asteroid]bool, 32),
 	}
 
 	sg.initializeGrids()
@@ -178,14 +188,16 @@ func (sg *SpatialGrid) GetNearbyEnemies(x, y, radius float64) []*entities.Enemy 
 	cells := sg.getCellsInRadius(x, y, radius)
 	enemies := make([]*entities.Enemy, 0, 32) // Pre-allocate reasonable size
 
-	// Use map to avoid duplicates (entity can be in multiple cells)
-	seen := make(map[*entities.Enemy]bool)
+	// Clear and reuse map to avoid allocations
+	for k := range sg.seenEnemies {
+		delete(sg.seenEnemies, k)
+	}
 
 	for _, cell := range cells {
 		for _, enemy := range sg.enemyGrid[cell[1]][cell[0]].Enemies {
-			if !seen[enemy] {
+			if !sg.seenEnemies[enemy] {
 				enemies = append(enemies, enemy)
-				seen[enemy] = true
+				sg.seenEnemies[enemy] = true
 			}
 		}
 	}
@@ -198,13 +210,16 @@ func (sg *SpatialGrid) GetNearbyProjectiles(x, y, radius float64) []*entities.Pr
 	cells := sg.getCellsInRadius(x, y, radius)
 	projectiles := make([]*entities.Projectile, 0, 64)
 
-	seen := make(map[*entities.Projectile]bool)
+	// Clear and reuse map to avoid allocations
+	for k := range sg.seenProjectiles {
+		delete(sg.seenProjectiles, k)
+	}
 
 	for _, cell := range cells {
 		for _, proj := range sg.projectileGrid[cell[1]][cell[0]].Projectiles {
-			if !seen[proj] {
+			if !sg.seenProjectiles[proj] {
 				projectiles = append(projectiles, proj)
-				seen[proj] = true
+				sg.seenProjectiles[proj] = true
 			}
 		}
 	}
@@ -217,13 +232,16 @@ func (sg *SpatialGrid) GetNearbyPowerups(x, y, radius float64) []*entities.Power
 	cells := sg.getCellsInRadius(x, y, radius)
 	powerups := make([]*entities.PowerUp, 0, 8)
 
-	seen := make(map[*entities.PowerUp]bool)
+	// Clear and reuse map to avoid allocations
+	for k := range sg.seenPowerups {
+		delete(sg.seenPowerups, k)
+	}
 
 	for _, cell := range cells {
 		for _, powerup := range sg.powerupGrid[cell[1]][cell[0]].Powerups {
-			if !seen[powerup] {
+			if !sg.seenPowerups[powerup] {
 				powerups = append(powerups, powerup)
-				seen[powerup] = true
+				sg.seenPowerups[powerup] = true
 			}
 		}
 	}
@@ -236,13 +254,16 @@ func (sg *SpatialGrid) GetNearbyAsteroids(x, y, radius float64) []*entities.Aste
 	cells := sg.getCellsInRadius(x, y, radius)
 	asteroids := make([]*entities.Asteroid, 0, 16)
 
-	seen := make(map[*entities.Asteroid]bool)
+	// Clear and reuse map to avoid allocations
+	for k := range sg.seenAsteroids {
+		delete(sg.seenAsteroids, k)
+	}
 
 	for _, cell := range cells {
 		for _, asteroid := range sg.asteroidGrid[cell[1]][cell[0]].Asteroids {
-			if !seen[asteroid] {
+			if !sg.seenAsteroids[asteroid] {
 				asteroids = append(asteroids, asteroid)
-				seen[asteroid] = true
+				sg.seenAsteroids[asteroid] = true
 			}
 		}
 	}

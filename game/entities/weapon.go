@@ -88,7 +88,7 @@ func NewWeaponManager() *WeaponManager {
 		Description:     "Single forward shot",
 		IconEmoji:       "💥",
 		Damage:          25,
-		FireRate:        6.0,
+		FireRate:        5.5, // Reduced from 6.0 for performance (-10%)
 		ProjectileSpeed: 300,
 		Spread:          0.2, // 0.2 radians ≈ 11 degrees
 		ProjectileCount: 1,   // Start with single shot
@@ -211,8 +211,8 @@ func (wm *WeaponManager) AddWeapon(weaponType WeaponType) bool {
 			Name:            "Pulse Cannon",
 			Description:     "Rapid burst fire",
 			IconEmoji:       "💫",
-			Damage:          18,  // Increased damage to compensate for slower fire rate
-			FireRate:        8.0, // Reduced from 12.0 to prevent projectile spam
+			Damage:          21,  // Increased from 18 (+15% to compensate for fire rate)
+			FireRate:        6.0, // Reduced from 8.0 for performance (-25%)
 			ProjectileSpeed: 320,
 			Spread:          0.1,
 			ProjectileCount: 2,
@@ -275,8 +275,8 @@ func (wm *WeaponManager) AddWeapon(weaponType WeaponType) bool {
 			Name:            "Flamethrower",
 			Description:     "Short range flame stream",
 			IconEmoji:       "🔥",
-			Damage:          12,  // Increased damage to compensate for slower fire rate
-			FireRate:        6.0, // Reduced from 10.0 to prevent projectile spam
+			Damage:          14,  // Increased from 12 (+20% to compensate for fire rate)
+			FireRate:        4.5, // Reduced from 6.0 for performance (-25%)
 			ProjectileSpeed: 200,
 			Spread:          0.6,
 			ProjectileCount: 3,
@@ -291,8 +291,8 @@ func (wm *WeaponManager) AddWeapon(weaponType WeaponType) bool {
 			Name:            "Ion Beam",
 			Description:     "Continuous penetrating beam",
 			IconEmoji:       "🌟",
-			Damage:          10,  // Increased damage to compensate for slower fire rate
-			FireRate:        8.0, // Reduced from 12.0 to prevent projectile spam
+			Damage:          12,  // Increased from 10 (+15% to compensate for fire rate)
+			FireRate:        6.0, // Reduced from 8.0 for performance (-25%)
 			ProjectileSpeed: 600,
 			Spread:          0.0,
 			ProjectileCount: 1,
@@ -410,9 +410,9 @@ func (wm *WeaponManager) UpgradeWeapon(weaponType WeaponType) bool {
 			if weapon.Level == WeaponLevelMkV {
 				switch weapon.Type {
 				case WeaponTypeShotgun:
-					weapon.ProjectileCount = 12 // 10 -> 12
+					weapon.ProjectileCount = 10 // Reduced from 12 for performance (-17%)
 				case WeaponTypePlasma:
-					weapon.ProjectileCount = 5 // 4 -> 5
+					weapon.ProjectileCount = 4 // Reduced from 5 for performance (-20%)
 				case WeaponTypePulse:
 					weapon.ProjectileCount = 3 // Keep at 3 to prevent lag
 				case WeaponTypeHoming:
@@ -420,7 +420,7 @@ func (wm *WeaponManager) UpgradeWeapon(weaponType WeaponType) bool {
 				case WeaponTypeFollowingRocket:
 					weapon.ProjectileCount = 2 // 1 -> 2
 				case WeaponTypeFlamethrower:
-					weapon.ProjectileCount = 4 // 3 -> 4 (reduced from 5)
+					weapon.ProjectileCount = 3 // Reduced from 4 for performance
 				}
 
 				// Level 5 weapons get brighter, more intense colors

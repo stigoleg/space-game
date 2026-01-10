@@ -25,6 +25,7 @@ const (
 	AnnouncementTypeMilestone
 	AnnouncementTypePerfectWave
 	AnnouncementTypeKillSpree
+	AnnouncementTypeMysteryBox
 )
 
 // AnnouncementManager manages on-screen announcements
@@ -160,6 +161,33 @@ func (am *AnnouncementManager) AddPerfectWaveAnnouncement(screenCenterX, screenC
 		Color:     color.RGBA{100, 255, 100, 255},
 		Scale:     2.5,
 		Type:      AnnouncementTypePerfectWave,
+	})
+}
+
+// AddMysteryBoxAnnouncement creates a mystery box announcement with appropriate color
+func (am *AnnouncementManager) AddMysteryBoxAnnouncement(text string, isPositive bool, screenCenterX, screenCenterY float64) {
+	var announcementColor color.RGBA
+	var duration float64
+
+	if isPositive {
+		// Green for positive effects
+		announcementColor = color.RGBA{50, 255, 50, 255}
+		duration = 3.0
+	} else {
+		// Red for negative effects
+		announcementColor = color.RGBA{255, 50, 50, 255}
+		duration = 3.5 // Show negative effects slightly longer as a warning
+	}
+
+	am.Announcements = append(am.Announcements, &ComboAnnouncement{
+		Text:      text,
+		X:         screenCenterX,
+		Y:         screenCenterY - 120,
+		TimeAlive: 0,
+		Duration:  duration,
+		Color:     announcementColor,
+		Scale:     2.0,
+		Type:      AnnouncementTypeMysteryBox,
 	})
 }
 

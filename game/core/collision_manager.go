@@ -18,6 +18,7 @@ type CollisionManager struct {
 	OnExplosionSpawned  func(x, y, size float64)
 	OnImpactSpawned     func(x, y, size float64, color color.RGBA)
 	OnFloatingTextAdded func(x, y float64, text string, color color.RGBA)
+	OnAnnouncementAdded func(text string, isPositive bool)
 	OnSoundPlayed       func(soundType systems.SoundType)
 	OnScreenShake       func(amount float64)
 	OnPowerUpSpawned    func(x, y float64)
@@ -472,6 +473,10 @@ func (cm *CollisionManager) handlePowerUpEffect(player *entities.Player, pu *ent
 			}
 			if cm.OnFloatingTextAdded != nil {
 				cm.OnFloatingTextAdded(player.X, player.Y-50, message, textColor)
+			}
+			// Add large announcement for mystery box effects
+			if cm.OnAnnouncementAdded != nil {
+				cm.OnAnnouncementAdded(message, isPositive)
 			}
 		}
 	}

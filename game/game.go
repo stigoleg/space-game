@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"sort"
 	"time"
 
 	"stellar-siege/game/core"
@@ -96,6 +97,12 @@ type Game struct {
 	// Impact effects for hit feedback
 	impactEffects []*entities.ImpactEffect
 
+	// Announcements for major events
+	announcements *entities.AnnouncementManager
+
+	// Reusable overlay images (to avoid per-frame allocations)
+	overlayImage *ebiten.Image
+
 	// Mini-boss spawning during boss battles
 	miniBossSpawnTimer float64 // Timer for spawning mini-bosses during boss fight
 	miniBossesSpawned  int     // Number of mini-bosses spawned in current boss wave
@@ -115,14 +122,16 @@ func NewGame() *Game {
 	g := &Game{
 		container:          container,
 		state:              StateMenu,
-		selectedDifficulty: DifficultyNormal,                  // Default to Normal difficulty
-		cameraDistance:     100.0,                             // How far back to view from
-		cameraHeight:       60.0,                              // How high to view from (for angle)
-		cameraZoom:         1.0,                               // Normal zoom
-		cameraTargetZoom:   1.0,                               // Target zoom
-		cameraShakeAmount:  0.0,                               // No screen shake initially
-		floatingTexts:      make([]*entities.FloatingText, 0), // Initialize floating text list
-		impactEffects:      make([]*entities.ImpactEffect, 0), // Initialize impact effects list
+		selectedDifficulty: DifficultyNormal,                           // Default to Normal difficulty
+		cameraDistance:     100.0,                                      // How far back to view from
+		cameraHeight:       60.0,                                       // How high to view from (for angle)
+		cameraZoom:         1.0,                                        // Normal zoom
+		cameraTargetZoom:   1.0,                                        // Target zoom
+		cameraShakeAmount:  0.0,                                        // No screen shake initially
+		floatingTexts:      make([]*entities.FloatingText, 0),          // Initialize floating text list
+		impactEffects:      make([]*entities.ImpactEffect, 0),          // Initialize impact effects list
+		announcements:      entities.NewAnnouncementManager(),          // Initialize announcement manager
+		overlayImage:       ebiten.NewImage(ScreenWidth, ScreenHeight), // Create reusable overlay
 	}
 
 	// Register services in the DI container
@@ -174,13 +183,13 @@ func NewGame() *Game {
 		func() *entities.Projectile {
 			return &entities.Projectile{}
 		},
-		200, // Pre-allocate 200 projectiles
+		350, // Increased from 200 to handle peak loads better
 	)
 	g.explosionPool = core.NewEntityPool[*entities.Explosion](
 		func() *entities.Explosion {
 			return &entities.Explosion{Particles: make([]entities.Particle, 0, 50)}
 		},
-		50, // Pre-allocate 50 explosions
+		80, // Increased from 50 to handle peak loads better
 	)
 
 	// Load Gist configuration for online leaderboard from environment variables
@@ -219,12 +228,15 @@ func (g *Game) startGame() {
 	g.player.ShieldRegenDelay = g.difficultyConfig.ShieldRegenDelay
 	g.player.LastDamageTime = -999 // Start with regen available
 
-	g.enemies = nil
+	// Clear slices efficiently (keep backing arrays, just reset length to 0)
+	g.enemies = g.enemies[:0]
+	g.projectiles = g.projectiles[:0]
+	g.explosions = g.explosions[:0]
+	g.powerups = g.powerups[:0]
+	g.asteroids = g.asteroids[:0]
+	g.floatingTexts = g.floatingTexts[:0]
+	g.impactEffects = g.impactEffects[:0]
 	g.boss = nil
-	g.projectiles = nil
-	g.explosions = nil
-	g.powerups = nil
-	g.asteroids = nil
 	g.score = 0
 	g.wave = 0
 	g.multiplier = 1.0
@@ -581,6 +593,9 @@ func (g *Game) updateVisualEffects() {
 			ie.Update()
 		}
 	}
+
+	// Update announcements
+	g.announcements.Update()
 }
 
 // updateLowHealthWarning plays low health warning sound when appropriate
@@ -939,10 +954,29 @@ func (g *Game) checkCollisions() {
 					return // Skip ApplyPowerUp call below since we already called it
 				case entities.PowerUpSpeed:
 					g.sound.PlaySound(systems.SoundPowerUpCollect)
+				case entities.PowerUpMystery:
+					// Handle mystery box separately for announcements
+					message, isPositive := g.player.ApplyPowerUp(pu.Type)
+					if message != "" {
+						// Add large center-screen announcement
+						g.announcements.AddMysteryBoxAnnouncement(message, isPositive, ScreenWidth/2, ScreenHeight/2)
+						// Also add floating text above player
+						var textColor color.RGBA
+						if isPositive {
+							textColor = color.RGBA{50, 255, 50, 255}
+							g.sound.PlaySound(systems.SoundPowerUpCollect)
+						} else {
+							textColor = color.RGBA{255, 50, 50, 255}
+							g.sound.PlaySound(systems.SoundHitPlayer)
+						}
+						ft := entities.NewFloatingText(g.player.X, g.player.Y-50, message, textColor)
+						g.floatingTexts = append(g.floatingTexts, ft)
+					}
+					return // Skip ApplyPowerUp call below since we already handled it
 				}
 
-				// Apply power-up effect (skip for weapon since we already handled it)
-				if pu.Type != entities.PowerUpWeapon {
+				// Apply power-up effect (skip for weapon and mystery since we already handled them)
+				if pu.Type != entities.PowerUpWeapon && pu.Type != entities.PowerUpMystery {
 					g.player.ApplyPowerUp(pu.Type)
 				}
 			}
@@ -1368,14 +1402,10 @@ func (g *Game) drawGameplay(screen *ebiten.Image, shakeX, shakeY float64) {
 	}
 
 	// Sort by Y position (lower Y = further back = drawn first)
-	// Simple bubble sort is fine for game entities
-	for i := 0; i < len(entities); i++ {
-		for j := i + 1; j < len(entities); j++ {
-			if entities[j].y < entities[i].y {
-				entities[i], entities[j] = entities[j], entities[i]
-			}
-		}
-	}
+	// Using sort.Slice for O(n log n) performance instead of O(n²) bubble sort
+	sort.Slice(entities, func(i, j int) bool {
+		return entities[i].y < entities[j].y
+	})
 
 	// Draw in sorted order (back to front)
 	for _, entity := range entities {
@@ -1416,20 +1446,31 @@ func (g *Game) drawGameplay(screen *ebiten.Image, shakeX, shakeY float64) {
 		}
 	}
 
+	// Draw announcements (large center-screen messages)
+	for _, ann := range g.announcements.GetAnnouncements() {
+		// Calculate display properties with fade and scale effects
+		displayY := ann.GetDisplayY()
+		displayScale := ann.GetDisplayScale()
+		displayColor := ann.GetDisplayColor()
+
+		// Draw announcement text with scale and position effects
+		systems.DrawTextCentered(screen, ann.Text, int(ann.X), int(displayY), displayScale, displayColor)
+	}
+
 	// Draw damage flash overlay
 	if g.damageFlash > 0 {
 		alpha := uint8(255 * (g.damageFlash / 0.2)) // Fade over 0.2 seconds
-		overlay := ebiten.NewImage(ScreenWidth, ScreenHeight)
-		overlay.Fill(color.RGBA{255, 50, 50, alpha})
-		screen.DrawImage(overlay, nil)
+		g.overlayImage.Clear()
+		g.overlayImage.Fill(color.RGBA{255, 50, 50, alpha})
+		screen.DrawImage(g.overlayImage, nil)
 	}
 }
 
 func (g *Game) drawPauseOverlay(screen *ebiten.Image) {
-	// Semi-transparent overlay
-	overlay := ebiten.NewImage(ScreenWidth, ScreenHeight)
-	overlay.Fill(color.RGBA{0, 0, 0, 150})
-	screen.DrawImage(overlay, nil)
+	// Semi-transparent overlay (reuse to avoid per-frame allocation)
+	g.overlayImage.Clear()
+	g.overlayImage.Fill(color.RGBA{0, 0, 0, 150})
+	screen.DrawImage(g.overlayImage, nil)
 
 	systems.DrawTextCentered(screen, "PAUSED", ScreenWidth/2, ScreenHeight/2-40, 4, color.RGBA{255, 255, 255, 255})
 	systems.DrawTextCentered(screen, "Press P to Resume", ScreenWidth/2, ScreenHeight/2+20, 2, color.RGBA{200, 200, 200, 255})
@@ -1446,10 +1487,10 @@ func (g *Game) drawPauseOverlay(screen *ebiten.Image) {
 }
 
 func (g *Game) drawGameOverOverlay(screen *ebiten.Image) {
-	// Semi-transparent overlay
-	overlay := ebiten.NewImage(ScreenWidth, ScreenHeight)
-	overlay.Fill(color.RGBA{0, 0, 0, 180})
-	screen.DrawImage(overlay, nil)
+	// Semi-transparent overlay (reuse to avoid per-frame allocation)
+	g.overlayImage.Clear()
+	g.overlayImage.Fill(color.RGBA{0, 0, 0, 180})
+	screen.DrawImage(g.overlayImage, nil)
 
 	systems.DrawTextCentered(screen, "GAME OVER", ScreenWidth/2, 150, 4, color.RGBA{255, 50, 50, 255})
 

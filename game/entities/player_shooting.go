@@ -68,7 +68,7 @@ func (p *Player) createProjectilesForWeapon(weapon *Weapon) []*Projectile {
 	return projectiles
 }
 
-// createSideBlasters creates 2 angled shots on each side (4 total) - optimized for performance
+// createSideBlasters creates 2 angled shots (1 on each side) - optimized for performance
 func (p *Player) createSideBlasters() []*Projectile {
 	var projectiles []*Projectile
 
@@ -77,12 +77,12 @@ func (p *Player) createSideBlasters() []*Projectile {
 		return projectiles
 	}
 
-	// Create 4 angled shots (2 on each side) - reduced from 6 for performance
+	// Create 2 angled shots (1 on each side) - reduced from 4 for performance
 	// Use the basic gun's properties for these shots
 	spread := 0.2 // Base spread angle
 	angles := []float64{
-		-spread * 1.5, -spread * 3.0, // Left side
-		spread * 1.5, spread * 3.0, // Right side
+		-spread * 2.0, // Left side
+		spread * 2.0,  // Right side
 	}
 
 	for _, spreadAngle := range angles {

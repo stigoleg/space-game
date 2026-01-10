@@ -50,6 +50,15 @@ func NewProjectile(x, y, velX, velY float64, friendly bool, damage int) *Project
 		glowColor = color.RGBA{255, 50, 50, 180}
 	}
 
+	// Calculate speed and set lifetime based on velocity
+	speed := math.Sqrt(velX*velX+velY*velY) * 60.0 // Convert to pixels per second
+	lifetime := 2.5                                // Default lifetime
+
+	// Fast projectiles get shorter lifetime for better cleanup
+	if speed > 350 {
+		lifetime = 2.0
+	}
+
 	return &Projectile{
 		X:              x,
 		Y:              y,
@@ -59,17 +68,26 @@ func NewProjectile(x, y, velX, velY float64, friendly bool, damage int) *Project
 		Damage:         damage,
 		Friendly:       friendly,
 		Active:         true,
-		Trail:          make([]struct{ X, Y float64 }, 0, 8), // Increased from 5 to 8
+		Trail:          make([]struct{ X, Y float64 }, 0, 5), // Reduced from 8 to 5 for performance
 		Color:          mainColor,
 		GlowColor:      glowColor,
-		TargetEnemyIdx: -1,  // No target initially
-		Lifetime:       3.0, // Reduced from 5.0 to 3.0 for faster cleanup
-		Age:            0.0, // Start at age 0
+		TargetEnemyIdx: -1,
+		Lifetime:       lifetime, // Speed-based lifetime (2.0-2.5s)
+		Age:            0.0,      // Start at age 0
 	}
 }
 
 // NewProjectileWithColor creates a projectile with custom colors (for weapon variety)
 func NewProjectileWithColor(x, y, velX, velY float64, friendly bool, damage int, mainColor, glowColor color.RGBA) *Projectile {
+	// Calculate speed and set lifetime based on velocity
+	speed := math.Sqrt(velX*velX+velY*velY) * 60.0 // Convert to pixels per second
+	lifetime := 2.5                                // Default lifetime
+
+	// Fast projectiles get shorter lifetime for better cleanup
+	if speed > 350 {
+		lifetime = 2.0
+	}
+
 	return &Projectile{
 		X:              x,
 		Y:              y,
@@ -79,12 +97,12 @@ func NewProjectileWithColor(x, y, velX, velY float64, friendly bool, damage int,
 		Damage:         damage,
 		Friendly:       friendly,
 		Active:         true,
-		Trail:          make([]struct{ X, Y float64 }, 0, 8),
+		Trail:          make([]struct{ X, Y float64 }, 0, 5), // Reduced from 8 to 5 for performance
 		Color:          mainColor,
 		GlowColor:      glowColor,
-		TargetEnemyIdx: -1,  // No target initially
-		Lifetime:       3.0, // Reduced from 5.0 to 3.0 for faster cleanup
-		Age:            0.0, // Start at age 0
+		TargetEnemyIdx: -1,
+		Lifetime:       lifetime, // Speed-based lifetime (2.0-2.5s)
+		Age:            0.0,      // Start at age 0
 	}
 }
 
@@ -98,9 +116,9 @@ func (p *Projectile) Update() {
 		return
 	}
 
-	// Store trail position
+	// Store trail position (reduced trail length for performance)
 	p.Trail = append(p.Trail, struct{ X, Y float64 }{p.X, p.Y})
-	if len(p.Trail) > 8 { // Increased trail length
+	if len(p.Trail) > 5 { // Reduced from 8 to 5
 		p.Trail = p.Trail[1:]
 	}
 
@@ -148,14 +166,10 @@ func (p *Projectile) DrawBeam(screen *ebiten.Image, shakeX, shakeY float64) {
 	endX := float32(p.X + shakeX)
 	endY := float32(p.Y + shakeY)
 
-	// Draw multiple layers for glow effect
+	// Optimized: Reduced from 4 layers to 3 for better performance
 	// Outer glow
-	vector.StrokeLine(screen, startX, startY, endX, endY, 12,
-		color.RGBA{p.GlowColor.R, p.GlowColor.G, p.GlowColor.B, 60}, true)
-
-	// Middle glow
-	vector.StrokeLine(screen, startX, startY, endX, endY, 6,
-		color.RGBA{p.GlowColor.R, p.GlowColor.G, p.GlowColor.B, 150}, true)
+	vector.StrokeLine(screen, startX, startY, endX, endY, 8,
+		color.RGBA{p.GlowColor.R, p.GlowColor.G, p.GlowColor.B, 50}, true)
 
 	// Core beam
 	vector.StrokeLine(screen, startX, startY, endX, endY, 3,
@@ -171,17 +185,17 @@ func (p *Projectile) drawSpriteBased(screen *ebiten.Image, x, y float32, sprite 
 	mainColor := p.Color
 	glowColor := p.GlowColor
 
-	// Draw large outer glow FIRST (background)
-	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)+8, color.RGBA{glowColor.R, glowColor.G, glowColor.B, 40}, true)
+	// Optimized: Reduced outer glow size and opacity for better performance
+	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)+5, color.RGBA{glowColor.R, glowColor.G, glowColor.B, 30}, true)
 
 	// Draw enhanced trail with glow
 	for i, t := range p.Trail {
 		alpha := uint8(100 + i*30)
 		size := float32(p.Radius) * float32(i+1) / float32(len(p.Trail)+2)
 
-		// Trail glow (larger)
-		glowSize := size * 2.2 // Increased from 1.8
-		glowAlpha := uint8(50 + i*20)
+		// Trail glow (optimized size)
+		glowSize := size * 1.6        // Reduced from 2.2
+		glowAlpha := uint8(40 + i*15) // Reduced opacity
 		trailGlow := color.RGBA{glowColor.R, glowColor.G, glowColor.B, glowAlpha}
 		vector.DrawFilledCircle(screen, float32(t.X+shakeX), float32(t.Y+shakeY), glowSize, trailGlow, true)
 
@@ -225,20 +239,16 @@ func (p *Projectile) drawProcedural(screen *ebiten.Image, x, y float32, shakeX, 
 		vector.DrawFilledCircle(screen, float32(t.X+shakeX), float32(t.Y+shakeY), size, trailColor, true)
 	}
 
-	// Large outer glow
-	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)+6, color.RGBA{glowColor.R, glowColor.G, glowColor.B, 80}, true)
+	// Optimized: Reduced from 5 layers to 3 for better performance
 
-	// Main glow
-	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)+3, glowColor, true)
+	// Outer glow (reduced size and opacity)
+	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)+4, color.RGBA{glowColor.R, glowColor.G, glowColor.B, 60}, true)
 
 	// Main projectile
 	vector.DrawFilledCircle(screen, x, y, float32(p.Radius), mainColor, true)
 
 	// Bright center core
-	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)*0.6, color.RGBA{255, 255, 255, 220}, true)
-
-	// Inner bright spot
-	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)*0.3, color.RGBA{255, 255, 255, 255}, true)
+	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)*0.5, color.RGBA{255, 255, 255, 200}, true)
 }
 
 // UpdateHoming updates projectile trajectory to home in on enemies
