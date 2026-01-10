@@ -326,6 +326,20 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts
       
+      - name: Generate SHA256 checksums
+        run: |
+          cd artifacts
+          echo "# SHA256 Checksums" > ../checksums.txt
+          echo "" >> ../checksums.txt
+          echo "Verify your download integrity:" >> ../checksums.txt
+          echo '```' >> ../checksums.txt
+          find . -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.zip" \) -exec sh -c 'sha256sum "{}" | sed "s|^\./||" | sed "s|.*/||"' \; >> ../checksums.txt
+          echo '```' >> ../checksums.txt
+          cd ..
+          echo ""
+          echo "Generated checksums:"
+          cat checksums.txt
+      
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -334,6 +348,7 @@ jobs:
             artifacts/stellar-siege-darwin-arm64/Stellar-Siege-macOS-AppleSilicon.dmg
             artifacts/stellar-siege-linux-amd64/stellar-siege-linux-amd64.tar.gz
             artifacts/stellar-siege-windows-amd64/stellar-siege-windows-amd64.zip
+            checksums.txt
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -347,11 +362,19 @@ jobs:
             - **macOS Apple Silicon**: Stellar-Siege-macOS-AppleSilicon.dmg
             - **Linux**: stellar-siege-linux-amd64.tar.gz
             - **Windows**: stellar-siege-windows-amd64.zip
+            - **Checksums**: checksums.txt
+            
+            ### Security Notice:
+            **First-time users may see security warnings** - this is normal for unsigned applications.
+            - See [SECURITY.md](https://github.com/${{ github.repository }}/blob/main/SECURITY.md) for instructions on bypassing these warnings safely
+            - Verify your download using the SHA256 checksums provided in checksums.txt
             
             ### Setup Instructions:
             1. Download the appropriate file for your platform
-            2. Extract/mount the archive
-            3. (Optional) Configure GitHub Gist leaderboard by copying `.env.example` to `.env` and adding your credentials
-            4. Run the game and enjoy!
+            2. **Verify checksum** (recommended): Compare SHA256 hash with checksums.txt
+            3. Extract/mount the archive
+            4. **First launch**: Follow security instructions in SECURITY.md if you see warnings
+            5. (Optional) Configure GitHub Gist leaderboard by copying `.env.example` to `.env` and adding your credentials
+            6. Run the game and enjoy!
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

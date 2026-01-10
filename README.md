@@ -27,6 +27,33 @@ Stellar Siege is a top-down space shooter where you defend against waves of incr
   - Announcements and visual feedback
   - Procedurally generated sound effects
 
+## Installation
+
+### Downloading Pre-built Releases
+
+**Pre-built releases are available for Linux, macOS (Intel & Apple Silicon), and Windows.**
+
+Download the latest release from: https://github.com/sogud/stellar-siege/releases/latest
+
+#### Security Notice
+
+**First-time users may see security warnings** - this is normal for unsigned applications. The game is safe to run, but operating systems display warnings because we don't pay for code signing certificates ($99-400/year).
+
+**How to install safely:**
+1. Download the appropriate file for your platform
+2. Verify the SHA256 checksum (recommended) - compare with `checksums.txt`
+3. Follow the security bypass instructions below
+
+#### Platform-Specific Instructions
+
+- **macOS**: Right-click the app → "Open" → "Open" (bypasses Gatekeeper)
+- **Windows**: Click "More info" → "Run anyway" (bypasses SmartScreen)
+- **Linux**: No warnings typically appear
+
+**For detailed instructions with screenshots, see [SECURITY.md](SECURITY.md)**
+
+---
+
 ## Quick Start
 
 ### Prerequisites
@@ -214,6 +241,7 @@ See [GITHUB_ACTIONS_SETUP.md](GITHUB_ACTIONS_SETUP.md) for complete CI/CD setup 
 
 ## Documentation
 
+- **[SECURITY.md](SECURITY.md)** - Security warnings and safe installation guide
 - **[GITHUB_ACTIONS_SETUP.md](GITHUB_ACTIONS_SETUP.md)** - Complete CI/CD setup guide
 - **[CI_CD_QUICK_REFERENCE.md](CI_CD_QUICK_REFERENCE.md)** - Quick reference for releases
 - **[ONLINE_LEADERBOARD.md](ONLINE_LEADERBOARD.md)** - Leaderboard setup for players and developers
@@ -252,12 +280,18 @@ Developed using Go and Ebiten game engine.
 
 ## Troubleshooting
 
+### Security warnings when launching the game
+
+See [SECURITY.md](SECURITY.md) for complete instructions on safely bypassing macOS Gatekeeper and Windows SmartScreen warnings.
+
 ### Game won't start on macOS
 
 If you get a "damaged app" warning:
 ```bash
 xattr -cr "Stellar Siege.app"
 ```
+
+Or see [SECURITY.md](SECURITY.md) for detailed instructions with screenshots.
 
 ### Leaderboard not connecting
 
