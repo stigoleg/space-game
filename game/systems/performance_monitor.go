@@ -29,12 +29,25 @@ type PerformanceMonitor struct {
 	// Entity counts
 	entityCounts map[string]int
 
+	// Pool statistics
+	poolStats map[string]PoolStatsSnapshot
+
 	// Update counts for profiling
 	updateCount   int
 	collisionTime time.Duration
 	renderTime    time.Duration
 
 	mu sync.RWMutex
+}
+
+// PoolStatsSnapshot holds a snapshot of pool statistics for monitoring
+type PoolStatsSnapshot struct {
+	TotalCreated  int     // Total entities created
+	TotalReused   int     // Total entities reused from pool
+	CurrentActive int     // Current active entities
+	MaxActive     int     // Maximum concurrent active entities
+	PoolSize      int     // Total pool size
+	ReuseRate     float64 // Reuse rate percentage
 }
 
 // NewPerformanceMonitor creates a new performance monitor
@@ -44,6 +57,7 @@ func NewPerformanceMonitor() *PerformanceMonitor {
 		frameTimes:       make([]time.Duration, 60), // Track last 60 frames
 		minFrameTime:     time.Hour,                 // Start with large value
 		entityCounts:     make(map[string]int),
+		poolStats:        make(map[string]PoolStatsSnapshot),
 		lastMemStatsTime: time.Now(),
 	}
 }
@@ -107,6 +121,25 @@ func (pm *PerformanceMonitor) UpdateEntityCount(entityType string, count int) {
 	pm.mu.Lock()
 	pm.entityCounts[entityType] = count
 	pm.mu.Unlock()
+}
+
+// UpdatePoolStats updates statistics for a named pool
+func (pm *PerformanceMonitor) UpdatePoolStats(poolName string, stats PoolStatsSnapshot) {
+	pm.mu.Lock()
+	pm.poolStats[poolName] = stats
+	pm.mu.Unlock()
+}
+
+// GetPoolStats returns pool statistics
+func (pm *PerformanceMonitor) GetPoolStats() map[string]PoolStatsSnapshot {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	stats := make(map[string]PoolStatsSnapshot)
+	for k, v := range pm.poolStats {
+		stats[k] = v
+	}
+	return stats
 }
 
 // UpdateMemoryStats updates memory statistics
@@ -215,6 +248,15 @@ func (pm *PerformanceMonitor) GetSummary() string {
 
 	for entityType, count := range pm.entityCounts {
 		summary += fmt.Sprintf("\n    %s: %d", entityType, count)
+	}
+
+	// Add pool statistics
+	if len(pm.poolStats) > 0 {
+		summary += "\n  Pool Statistics:"
+		for poolName, stats := range pm.poolStats {
+			summary += fmt.Sprintf("\n    %s: active=%d/%d, reuse=%.1f%%, created=%d",
+				poolName, stats.CurrentActive, stats.PoolSize, stats.ReuseRate, stats.TotalCreated)
+		}
 	}
 
 	return summary

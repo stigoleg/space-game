@@ -531,6 +531,7 @@ func (cm *CollisionManager) handleAsteroidPlayerCollisions(
 }
 
 // handleProjectileAsteroidCollisions checks player projectiles against asteroids
+// Uses spatial grid for O(n) instead of O(n²) complexity
 func (cm *CollisionManager) handleProjectileAsteroidCollisions(
 	projectiles []*entities.Projectile,
 	asteroids []*entities.Asteroid,
@@ -540,7 +541,9 @@ func (cm *CollisionManager) handleProjectileAsteroidCollisions(
 			continue
 		}
 
-		for _, a := range asteroids {
+		// Query only nearby asteroids using spatial grid
+		nearbyAsteroids := cm.spatialGrid.GetNearbyAsteroids(p.X, p.Y, p.Radius+100) // 100 is max expected asteroid radius
+		for _, a := range nearbyAsteroids {
 			if !a.Active {
 				continue
 			}
@@ -571,6 +574,7 @@ func (cm *CollisionManager) handleProjectileAsteroidCollisions(
 						cm.OnScoreAdded(points)
 					}
 				}
+				break // Projectile can only hit one asteroid
 			}
 		}
 	}

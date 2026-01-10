@@ -120,6 +120,14 @@ func (sm *SoundManager) PlaySoundWithDistance(soundType SoundType, sourceX, sour
 		return
 	}
 
+	// Limit concurrent sounds to prevent goroutine explosion during intense gameplay
+	sm.mutex.Lock()
+	if len(sm.players) >= MaxConcurrentSounds {
+		sm.mutex.Unlock()
+		return
+	}
+	sm.mutex.Unlock()
+
 	// Calculate distance from sound source to listener
 	dx := sourceX - listenerX
 	dy := sourceY - listenerY
@@ -150,6 +158,14 @@ func (sm *SoundManager) PlaySoundVariation(soundType SoundType, frequencyVariati
 	if !sm.enabled {
 		return
 	}
+
+	// Limit concurrent sounds to prevent goroutine explosion during intense gameplay
+	sm.mutex.Lock()
+	if len(sm.players) >= MaxConcurrentSounds {
+		sm.mutex.Unlock()
+		return
+	}
+	sm.mutex.Unlock()
 
 	sound := sm.createSound(soundType)
 	if sound != nil {

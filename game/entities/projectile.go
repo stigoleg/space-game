@@ -8,6 +8,17 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+// Reusable DrawImageOptions to avoid allocation per projectile draw
+var projectileDrawOptions = &ebiten.DrawImageOptions{}
+
+// TrailPoint represents a point in the projectile trail
+type TrailPoint struct {
+	X, Y float64
+}
+
+// Maximum trail length constant
+const MaxTrailLength = 5
+
 type Projectile struct {
 	X, Y       float64
 	VelX, VelY float64
@@ -15,11 +26,13 @@ type Projectile struct {
 	Damage     int
 	Friendly   bool // true = player's projectile
 	Active     bool
-	Trail      []struct{ X, Y float64 }
-	Color      color.RGBA // Custom color for weapon types
-	GlowColor  color.RGBA // Custom glow color
-	Lifetime   float64    // Time to live in seconds (0 = infinite)
-	Age        float64    // Current age in seconds
+	Trail      [MaxTrailLength]TrailPoint // Fixed-size array for ring buffer
+	TrailHead  int                        // Current write position in ring buffer
+	TrailLen   int                        // Current number of valid trail points
+	Color      color.RGBA                 // Custom color for weapon types
+	GlowColor  color.RGBA                 // Custom glow color
+	Lifetime   float64                    // Time to live in seconds (0 = infinite)
+	Age        float64                    // Current age in seconds
 
 	// Special behavior flags
 	Homing         bool    // Following rocket behavior
@@ -68,7 +81,8 @@ func NewProjectile(x, y, velX, velY float64, friendly bool, damage int) *Project
 		Damage:         damage,
 		Friendly:       friendly,
 		Active:         true,
-		Trail:          make([]struct{ X, Y float64 }, 0, 5), // Reduced from 8 to 5 for performance
+		TrailHead:      0, // Ring buffer starts at 0
+		TrailLen:       0, // No trail points yet
 		Color:          mainColor,
 		GlowColor:      glowColor,
 		TargetEnemyIdx: -1,
@@ -97,7 +111,8 @@ func NewProjectileWithColor(x, y, velX, velY float64, friendly bool, damage int,
 		Damage:         damage,
 		Friendly:       friendly,
 		Active:         true,
-		Trail:          make([]struct{ X, Y float64 }, 0, 5), // Reduced from 8 to 5 for performance
+		TrailHead:      0, // Ring buffer starts at 0
+		TrailLen:       0, // No trail points yet
 		Color:          mainColor,
 		GlowColor:      glowColor,
 		TargetEnemyIdx: -1,
@@ -116,10 +131,11 @@ func (p *Projectile) Update() {
 		return
 	}
 
-	// Store trail position (reduced trail length for performance)
-	p.Trail = append(p.Trail, struct{ X, Y float64 }{p.X, p.Y})
-	if len(p.Trail) > 5 { // Reduced from 8 to 5
-		p.Trail = p.Trail[1:]
+	// Store trail position using ring buffer (no allocations)
+	p.Trail[p.TrailHead] = TrailPoint{X: p.X, Y: p.Y}
+	p.TrailHead = (p.TrailHead + 1) % MaxTrailLength
+	if p.TrailLen < MaxTrailLength {
+		p.TrailLen++
 	}
 
 	p.X += p.VelX
@@ -188,10 +204,15 @@ func (p *Projectile) drawSpriteBased(screen *ebiten.Image, x, y float32, sprite 
 	// Optimized: Reduced outer glow size and opacity for better performance
 	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)+5, color.RGBA{glowColor.R, glowColor.G, glowColor.B, 30}, true)
 
-	// Draw enhanced trail with glow
-	for i, t := range p.Trail {
+	// Draw enhanced trail with glow using ring buffer
+	// Optimized: Only draw every other trail point to reduce draw calls
+	for i := 0; i < p.TrailLen; i += 2 {
+		// Calculate index in ring buffer (oldest first)
+		idx := (p.TrailHead - p.TrailLen + i + MaxTrailLength) % MaxTrailLength
+		t := p.Trail[idx]
+
 		alpha := uint8(100 + i*30)
-		size := float32(p.Radius) * float32(i+1) / float32(len(p.Trail)+2)
+		size := float32(p.Radius) * float32(i+1) / float32(p.TrailLen+2)
 
 		// Trail glow (optimized size)
 		glowSize := size * 1.6        // Reduced from 2.2
@@ -204,18 +225,18 @@ func (p *Projectile) drawSpriteBased(screen *ebiten.Image, x, y float32, sprite 
 		vector.DrawFilledCircle(screen, float32(t.X+shakeX), float32(t.Y+shakeY), size, trailColor, true)
 	}
 
-	// Draw sprite on top
-	op := &ebiten.DrawImageOptions{}
+	// Draw sprite on top using reusable DrawImageOptions
+	projectileDrawOptions.GeoM.Reset()
 
 	spriteBounds := sprite.Bounds()
 	spriteWidth := float64(spriteBounds.Dx())
 	spriteHeight := float64(spriteBounds.Dy())
 
 	// Center sprite on projectile position
-	op.GeoM.Translate(-spriteWidth/2, -spriteHeight/2)
-	op.GeoM.Translate(float64(x), float64(y))
+	projectileDrawOptions.GeoM.Translate(-spriteWidth/2, -spriteHeight/2)
+	projectileDrawOptions.GeoM.Translate(float64(x), float64(y))
 
-	screen.DrawImage(sprite, op)
+	screen.DrawImage(sprite, projectileDrawOptions)
 }
 
 func (p *Projectile) drawProcedural(screen *ebiten.Image, x, y float32, shakeX, shakeY float64) {
@@ -223,10 +244,15 @@ func (p *Projectile) drawProcedural(screen *ebiten.Image, x, y float32, shakeX, 
 	mainColor := p.Color
 	glowColor := p.GlowColor
 
-	// Draw enhanced trail with glow
-	for i, t := range p.Trail {
+	// Draw enhanced trail with glow using ring buffer
+	// Optimized: Only draw every other trail point to reduce draw calls
+	for i := 0; i < p.TrailLen; i += 2 {
+		// Calculate index in ring buffer (oldest first)
+		idx := (p.TrailHead - p.TrailLen + i + MaxTrailLength) % MaxTrailLength
+		t := p.Trail[idx]
+
 		alpha := uint8(100 + i*30)
-		size := float32(p.Radius) * float32(i+1) / float32(len(p.Trail)+2)
+		size := float32(p.Radius) * float32(i+1) / float32(p.TrailLen+2)
 
 		// Trail glow
 		glowSize := size * 1.8
@@ -251,6 +277,9 @@ func (p *Projectile) drawProcedural(screen *ebiten.Image, x, y float32, shakeX, 
 	vector.DrawFilledCircle(screen, x, y, float32(p.Radius)*0.5, color.RGBA{255, 255, 255, 200}, true)
 }
 
+// Maximum homing range constant - don't search for targets beyond this squared distance
+const MaxHomingRangeSq = 500.0 * 500.0
+
 // UpdateHoming updates projectile trajectory to home in on enemies
 // enemies parameter should be passed from game loop
 func (p *Projectile) UpdateHoming(enemies []*Enemy) {
@@ -267,17 +296,21 @@ func (p *Projectile) UpdateHoming(enemies []*Enemy) {
 		}
 	}
 
-	// If no valid target, find nearest enemy
+	// If no valid target, find nearest enemy within range
 	if target == nil {
-		minDist := 999999.0
+		minDistSq := MaxHomingRangeSq
 		for i, e := range enemies {
 			if !e.Active {
 				continue
 			}
 
-			dist := (e.X-p.X)*(e.X-p.X) + (e.Y-p.Y)*(e.Y-p.Y)
-			if dist < minDist {
-				minDist = dist
+			// Use squared distance to avoid sqrt
+			dx := e.X - p.X
+			dy := e.Y - p.Y
+			distSq := dx*dx + dy*dy
+
+			if distSq < minDistSq {
+				minDistSq = distSq
 				target = e
 				p.TargetEnemyIdx = i
 			}
@@ -285,7 +318,7 @@ func (p *Projectile) UpdateHoming(enemies []*Enemy) {
 	}
 
 	if target == nil {
-		return // No target, fly straight
+		return // No target within range, fly straight
 	}
 
 	// Calculate angle to target
@@ -332,7 +365,8 @@ func (p *Projectile) Reset() {
 	p.Damage = 0
 	p.Friendly = false
 	p.Active = false
-	p.Trail = p.Trail[:0] // Keep capacity, clear length
+	p.TrailHead = 0 // Reset ring buffer position
+	p.TrailLen = 0  // Clear trail
 	p.Color = color.RGBA{100, 200, 255, 255}
 	p.GlowColor = color.RGBA{50, 150, 255, 180}
 	p.Lifetime = 3.0

@@ -5,12 +5,27 @@ import (
 	"image/color"
 	"math"
 	"stellar-siege/game/entities"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font/basicfont"
 )
+
+// Cached font face to avoid allocation on every text draw
+var (
+	cachedFontFace     *text.GoXFace
+	cachedFontFaceOnce sync.Once
+)
+
+// getCachedFontFace returns the cached font face, creating it once if needed
+func getCachedFontFace() *text.GoXFace {
+	cachedFontFaceOnce.Do(func() {
+		cachedFontFace = text.NewGoXFace(basicfont.Face7x13)
+	})
+	return cachedFontFace
+}
 
 type HUD struct{}
 
@@ -44,9 +59,7 @@ func (h *HUD) Draw(screen *ebiten.Image, score int64, wave int, multiplier float
 			color.RGBA{50, 150, 255, 255}, color.RGBA{30, 30, 30, 200}, "SHIELD")
 	}
 
-	// Weapon level indicator
-	weaponText := fmt.Sprintf("WEAPON LV.%d", weaponLevel)
-	DrawText(screen, weaponText, 20, 80, 1.0, color.RGBA{255, 200, 100, 255})
+	// Note: Weapon info is now drawn separately via DrawWeaponInfo()
 }
 
 func drawBar(screen *ebiten.Image, x, y, width, height float32, ratio float64, fillColor, bgColor color.RGBA, label string) {
@@ -169,28 +182,36 @@ func FormatNumber(n int64) string {
 	return result
 }
 
+// Reusable DrawOptions to avoid allocation per text draw
+var textDrawOptions = &text.DrawOptions{}
+
 // DrawText draws text at the specified position
 func DrawText(screen *ebiten.Image, str string, x, y int, scale float64, clr color.RGBA) {
-	face := text.NewGoXFace(basicfont.Face7x13)
-	op := &text.DrawOptions{}
-	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(float64(x), float64(y))
-	op.ColorScale.ScaleWithColor(clr)
-	text.Draw(screen, str, face, op)
+	face := getCachedFontFace()
+	textDrawOptions.GeoM.Reset()
+	textDrawOptions.ColorScale.Reset()
+	textDrawOptions.GeoM.Scale(scale, scale)
+	textDrawOptions.GeoM.Translate(float64(x), float64(y))
+	textDrawOptions.ColorScale.ScaleWithColor(clr)
+	text.Draw(screen, str, face, textDrawOptions)
 }
+
+// Reusable DrawOptions for centered text to avoid allocation per text draw
+var textCenteredDrawOptions = &text.DrawOptions{}
 
 // DrawTextCentered draws text centered at the specified position
 func DrawTextCentered(screen *ebiten.Image, str string, x, y int, scale float64, clr color.RGBA) {
-	face := text.NewGoXFace(basicfont.Face7x13)
+	face := getCachedFontFace()
 
 	// Calculate text width for centering
 	width := float64(len(str)*7) * scale // Approximate width
 
-	op := &text.DrawOptions{}
-	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(float64(x)-width/2, float64(y))
-	op.ColorScale.ScaleWithColor(clr)
-	text.Draw(screen, str, face, op)
+	textCenteredDrawOptions.GeoM.Reset()
+	textCenteredDrawOptions.ColorScale.Reset()
+	textCenteredDrawOptions.GeoM.Scale(scale, scale)
+	textCenteredDrawOptions.GeoM.Translate(float64(x)-width/2, float64(y))
+	textCenteredDrawOptions.ColorScale.ScaleWithColor(clr)
+	text.Draw(screen, str, face, textCenteredDrawOptions)
 }
 
 // DrawAbilities draws ability cooldown indicators

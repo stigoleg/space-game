@@ -84,6 +84,31 @@ func (a *Asteroid) TakeDamage(damage int) {
 	}
 }
 
+// Reset resets the asteroid to default state (for object pooling)
+func (a *Asteroid) Reset() {
+	a.X = 0
+	a.Y = 0
+	a.VelX = 0
+	a.VelY = 1.0
+	a.Radius = 20
+	a.Size = AsteroidMedium
+	a.Health = 2
+	a.MaxHealth = 2
+	a.Rotation = 0
+	a.RotSpeed = 0.05
+	a.Active = false
+}
+
+// IsActive returns whether the asteroid is active
+func (a *Asteroid) IsActive() bool {
+	return a.Active
+}
+
+// SetActive sets the active state
+func (a *Asteroid) SetActive(active bool) {
+	a.Active = active
+}
+
 func (a *Asteroid) Draw(screen *ebiten.Image, shakeX, shakeY float64, perspectiveScale float64, sprite *ebiten.Image) {
 	if !a.Active {
 		return

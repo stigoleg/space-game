@@ -193,16 +193,27 @@ func (am *AnnouncementManager) AddMysteryBoxAnnouncement(text string, isPositive
 
 // Update updates all announcements
 func (am *AnnouncementManager) Update() {
-	// Remove expired announcements
-	var active []*ComboAnnouncement
+	// Only reallocate slice if we actually need to remove announcements
+	hasExpired := false
 	for _, ann := range am.Announcements {
 		ann.TimeAlive += 1.0 / 60.0 // 60 FPS
-
-		if ann.TimeAlive < ann.Duration {
-			active = append(active, ann)
+		if ann.TimeAlive >= ann.Duration {
+			hasExpired = true
 		}
 	}
-	am.Announcements = active
+
+	// Only filter if there are expired announcements
+	if hasExpired {
+		// Filter in-place to avoid allocation when possible
+		writeIdx := 0
+		for _, ann := range am.Announcements {
+			if ann.TimeAlive < ann.Duration {
+				am.Announcements[writeIdx] = ann
+				writeIdx++
+			}
+		}
+		am.Announcements = am.Announcements[:writeIdx]
+	}
 
 	am.LastComboTime += 1.0 / 60.0
 }
@@ -214,6 +225,13 @@ func (am *AnnouncementManager) GetAnnouncements() []*ComboAnnouncement {
 
 // ResetMultiKill resets the multi-kill counter
 func (am *AnnouncementManager) ResetMultiKill() {
+	am.LastMultiKill = 0
+}
+
+// Clear removes all announcements and resets state
+func (am *AnnouncementManager) Clear() {
+	am.Announcements = am.Announcements[:0]
+	am.LastComboTime = 0
 	am.LastMultiKill = 0
 }
 

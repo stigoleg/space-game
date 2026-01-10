@@ -124,16 +124,17 @@ func (e *Enemy) UpdateFormation(allEnemies []*Enemy) {
 		return
 	}
 
-	// Update nearby allies
-	e.NearbyAllies = nil
+	// Update nearby allies - reuse slice to avoid allocations
+	e.NearbyAllies = e.NearbyAllies[:0] // Clear but keep capacity
 	const allyDetectionRange = 150.0
+	const allyDetectionRangeSq = allyDetectionRange * allyDetectionRange
 
 	for _, other := range allEnemies {
 		if other != e && other.FormationType == e.FormationType && other.FormationID == e.FormationID && other.Active {
 			dx := other.X - e.X
 			dy := other.Y - e.Y
-			dist := math.Sqrt(dx*dx + dy*dy)
-			if dist < allyDetectionRange {
+			distSq := dx*dx + dy*dy // Avoid sqrt for comparison
+			if distSq < allyDetectionRangeSq {
 				e.NearbyAllies = append(e.NearbyAllies, other)
 			}
 		}

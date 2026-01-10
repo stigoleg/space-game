@@ -16,6 +16,9 @@ const (
 	TypeGameOver
 )
 
+// maxHistorySize limits the state transition history to prevent unbounded growth
+const maxHistorySize = 100
+
 // String returns the string representation of the state type
 func (s StateType) String() string {
 	switch s {
@@ -112,7 +115,7 @@ func (sm *StateMachine) SetInitialState(stateType StateType) error {
 	}
 
 	sm.currentState = state
-	sm.history = append(sm.history, stateType)
+	sm.appendToHistory(stateType)
 	return nil
 }
 
@@ -147,7 +150,7 @@ func (sm *StateMachine) TransitionTo(stateType StateType) error {
 
 	// Update current state
 	sm.currentState = targetState
-	sm.history = append(sm.history, stateType)
+	sm.appendToHistory(stateType)
 
 	// Run after transition hook
 	if sm.onAfterTransition != nil {
@@ -221,4 +224,19 @@ func (sm *StateMachine) ConfigureDefaultTransitions() {
 	// From GameOver
 	sm.AllowTransition(TypeGameOver, TypeMenu)
 	sm.AllowTransition(TypeGameOver, TypePlaying) // For retry
+}
+
+// appendToHistory adds a state to history, keeping it bounded to maxHistorySize
+func (sm *StateMachine) appendToHistory(stateType StateType) {
+	sm.history = append(sm.history, stateType)
+	if len(sm.history) > maxHistorySize {
+		// Keep the last maxHistorySize entries by shifting
+		copy(sm.history, sm.history[len(sm.history)-maxHistorySize:])
+		sm.history = sm.history[:maxHistorySize]
+	}
+}
+
+// ClearHistory resets the state transition history
+func (sm *StateMachine) ClearHistory() {
+	sm.history = sm.history[:0]
 }

@@ -1,10 +1,11 @@
 package game
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 	"math/rand"
-	"sort"
+	"sync"
 	"time"
 
 	"stellar-siege/game/core"
@@ -22,6 +23,17 @@ const (
 	ScreenHeight = 720
 )
 
+// Entity limits to prevent performance degradation during intense gameplay
+const (
+	MaxProjectiles   = 150 // Maximum projectiles on screen
+	MaxEnemies       = 40  // Maximum enemies on screen
+	MaxExplosions    = 30  // Maximum active explosions
+	MaxAsteroids     = 20  // Maximum asteroids on screen
+	MaxPowerUps      = 10  // Maximum powerups on screen
+	MaxFloatingTexts = 30  // Maximum floating text indicators
+	MaxImpactEffects = 20  // Maximum impact effects
+)
+
 type GameState int
 
 const (
@@ -30,6 +42,27 @@ const (
 	StatePaused
 	StateGameOver
 )
+
+// entityType represents the type of drawable entity for depth sorting
+type entityType uint8
+
+const (
+	entityTypePowerUp entityType = iota
+	entityTypeEnemy
+	entityTypeBoss
+	entityTypeProjectile
+	entityTypeExplosion
+	entityTypeAsteroid
+	entityTypePlayer
+)
+
+// drawableEntity stores entity data for depth-sorted rendering (avoiding closures)
+type drawableEntity struct {
+	y      float64
+	index  int        // Index into the appropriate slice
+	eType  entityType // What type of entity this is
+	sprite *ebiten.Image
+}
 
 type Game struct {
 	// Dependency injection container
@@ -59,8 +92,13 @@ type Game struct {
 	spatialGrid *core.SpatialGrid
 
 	// Object pools for reducing allocations
-	projectilePool *core.EntityPool[*entities.Projectile]
-	explosionPool  *core.EntityPool[*entities.Explosion]
+	projectilePool   *core.EntityPool[*entities.Projectile]
+	explosionPool    *core.EntityPool[*entities.Explosion]
+	enemyPool        *core.EntityPool[*entities.Enemy]
+	floatingTextPool *core.EntityPool[*entities.FloatingText]
+	impactEffectPool *core.EntityPool[*entities.ImpactEffect]
+	asteroidPool     *core.EntityPool[*entities.Asteroid]
+	powerUpPool      *core.EntityPool[*entities.PowerUp]
 
 	score                int64
 	wave                 int
@@ -103,6 +141,9 @@ type Game struct {
 	// Reusable overlay images (to avoid per-frame allocations)
 	overlayImage *ebiten.Image
 
+	// Reusable drawable entity slice (to avoid per-frame allocations)
+	drawableEntities []drawableEntity
+
 	// Mini-boss spawning during boss battles
 	miniBossSpawnTimer float64 // Timer for spawning mini-bosses during boss fight
 	miniBossesSpawned  int     // Number of mini-bosses spawned in current boss wave
@@ -113,6 +154,7 @@ type Game struct {
 	submitScorePrompt bool                  // Whether to prompt user to submit score
 	scoreSubmitted    bool                  // Whether score was submitted this session
 	onlineScores      []systems.OnlineScore // Cached online scores
+	onlineScoresMu    sync.RWMutex          // Protects onlineScores from concurrent access
 
 	// Auto-updater
 	updateManager *systems.UpdateManager
@@ -135,6 +177,7 @@ func NewGame() *Game {
 		impactEffects:      make([]*entities.ImpactEffect, 0),          // Initialize impact effects list
 		announcements:      entities.NewAnnouncementManager(),          // Initialize announcement manager
 		overlayImage:       ebiten.NewImage(ScreenWidth, ScreenHeight), // Create reusable overlay
+		drawableEntities:   make([]drawableEntity, 0, 256),             // Pre-allocate for typical entity count
 	}
 
 	// Register services in the DI container
@@ -194,6 +237,36 @@ func NewGame() *Game {
 		},
 		80, // Increased from 50 to handle peak loads better
 	)
+	g.enemyPool = core.NewEntityPool[*entities.Enemy](
+		func() *entities.Enemy {
+			return &entities.Enemy{}
+		},
+		100, // Typical max enemies on screen
+	)
+	g.floatingTextPool = core.NewEntityPool[*entities.FloatingText](
+		func() *entities.FloatingText {
+			return &entities.FloatingText{}
+		},
+		50, // Typical max floating texts
+	)
+	g.impactEffectPool = core.NewEntityPool[*entities.ImpactEffect](
+		func() *entities.ImpactEffect {
+			return &entities.ImpactEffect{}
+		},
+		30, // Typical max impact effects
+	)
+	g.asteroidPool = core.NewEntityPool[*entities.Asteroid](
+		func() *entities.Asteroid {
+			return &entities.Asteroid{}
+		},
+		30, // Typical max asteroids
+	)
+	g.powerUpPool = core.NewEntityPool[*entities.PowerUp](
+		func() *entities.PowerUp {
+			return &entities.PowerUp{}
+		},
+		15, // Typical max powerups
+	)
 
 	// Load Gist configuration for online leaderboard from environment variables
 	gistConfig, _ := systems.LoadGistConfig("")
@@ -203,7 +276,9 @@ func NewGame() *Game {
 		// Pre-fetch online scores in background
 		go func() {
 			if scores, err := g.onlineLeaderboard.GetTopScores(100); err == nil {
+				g.onlineScoresMu.Lock()
 				g.onlineScores = scores
+				g.onlineScoresMu.Unlock()
 			}
 		}()
 	}
@@ -290,6 +365,26 @@ func (g *Game) Update() error {
 		g.perfMon.UpdateEntityCount("explosions", len(g.explosions))
 		g.perfMon.UpdateEntityCount("powerups", len(g.powerups))
 		g.perfMon.UpdateEntityCount("asteroids", len(g.asteroids))
+
+		// Update pool statistics
+		projStats := g.projectilePool.GetStats()
+		g.perfMon.UpdatePoolStats("projectiles", systems.PoolStatsSnapshot{
+			TotalCreated:  projStats.TotalCreated,
+			TotalReused:   projStats.TotalReused,
+			CurrentActive: projStats.CurrentActive,
+			MaxActive:     projStats.MaxActive,
+			PoolSize:      projStats.PoolSize,
+			ReuseRate:     projStats.ReuseRate,
+		})
+		expStats := g.explosionPool.GetStats()
+		g.perfMon.UpdatePoolStats("explosions", systems.PoolStatsSnapshot{
+			TotalCreated:  expStats.TotalCreated,
+			TotalReused:   expStats.TotalReused,
+			CurrentActive: expStats.CurrentActive,
+			MaxActive:     expStats.MaxActive,
+			PoolSize:      expStats.PoolSize,
+			ReuseRate:     expStats.ReuseRate,
+		})
 
 		// Update memory stats periodically
 		g.perfMon.UpdateMemoryStats()
@@ -412,12 +507,19 @@ func (g *Game) updatePlayerState() {
 			g.sound.PlaySound(systems.SoundShieldRecharge)
 		}
 
-		// Player shooting
+		// Player shooting (respect projectile limit)
 		if ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-			newProjectiles := g.player.Shoot()
-			if len(newProjectiles) > 0 {
-				g.projectiles = append(g.projectiles, newProjectiles...)
-				g.sound.PlaySound(systems.SoundPlayerShoot)
+			if len(g.projectiles) < MaxProjectiles {
+				newProjectiles := g.player.Shoot()
+				if len(newProjectiles) > 0 {
+					// Only add projectiles up to the limit
+					spaceLeft := MaxProjectiles - len(g.projectiles)
+					if len(newProjectiles) > spaceLeft {
+						newProjectiles = newProjectiles[:spaceLeft]
+					}
+					g.projectiles = append(g.projectiles, newProjectiles...)
+					g.sound.PlaySound(systems.SoundPlayerShoot)
+				}
 			}
 		}
 	}
@@ -434,7 +536,16 @@ func (g *Game) updateBossWave() {
 		prevPhase := g.boss.Phase
 
 		bossProjectiles := g.boss.Update(g.player.X, g.player.Y, ScreenWidth, ScreenHeight)
-		g.projectiles = append(g.projectiles, bossProjectiles...)
+		// Respect projectile limit for boss projectiles
+		if len(bossProjectiles) > 0 {
+			spaceLeft := MaxProjectiles - len(g.projectiles)
+			if spaceLeft > 0 {
+				if len(bossProjectiles) > spaceLeft {
+					bossProjectiles = bossProjectiles[:spaceLeft]
+				}
+				g.projectiles = append(g.projectiles, bossProjectiles...)
+			}
+		}
 
 		// Play phase transition sounds
 		if prevPhase != g.boss.Phase {
@@ -472,8 +583,12 @@ func (g *Game) updateBossWave() {
 		g.bossWave = false
 		g.miniBossSpawnTimer = 0
 		g.miniBossesSpawned = 0
-		// Spawn health powerup after boss
-		g.powerups = append(g.powerups, entities.NewPowerUp(ScreenWidth/2, 200))
+		// Spawn health powerup after boss (respect limit)
+		if len(g.powerups) < MaxPowerUps {
+			powerup := g.powerUpPool.Get()
+			*powerup = *entities.NewPowerUp(ScreenWidth/2, 200)
+			g.powerups = append(g.powerups, powerup)
+		}
 	}
 }
 
@@ -483,9 +598,15 @@ func (g *Game) updateRegularWaveSpawning() {
 		return
 	}
 
-	// Regular wave spawning
+	// Regular wave spawning (respect enemy limit)
 	newEnemies := g.spawner.Update(g.gameTime, g.wave)
-	g.enemies = append(g.enemies, newEnemies...)
+	if len(newEnemies) > 0 && len(g.enemies) < MaxEnemies {
+		spaceLeft := MaxEnemies - len(g.enemies)
+		if len(newEnemies) > spaceLeft {
+			newEnemies = newEnemies[:spaceLeft]
+		}
+		g.enemies = append(g.enemies, newEnemies...)
+	}
 	if g.spawner.WaveCompleted && len(g.enemies) == 0 {
 		g.wave++
 		g.score += int64(g.wave * 1000) // Wave bonus
@@ -507,12 +628,14 @@ func (g *Game) updateEnemies() {
 	for _, e := range g.enemies {
 		if e.Active {
 			e.Update(g.player.X, g.player.Y, ScreenWidth, ScreenHeight)
-			// Enemy shooting
-			if proj := e.TryShoot(); proj != nil {
-				// Scale projectile damage by difficulty multiplier
-				proj.Damage = int(float64(proj.Damage) * g.difficultyConfig.DamageMultiplier)
-				g.projectiles = append(g.projectiles, proj)
-				g.sound.PlaySound(systems.SoundEnemyShoot)
+			// Enemy shooting (respect projectile limit)
+			if len(g.projectiles) < MaxProjectiles {
+				if proj := e.TryShoot(); proj != nil {
+					// Scale projectile damage by difficulty multiplier
+					proj.Damage = int(float64(proj.Damage) * g.difficultyConfig.DamageMultiplier)
+					g.projectiles = append(g.projectiles, proj)
+					g.sound.PlaySound(systems.SoundEnemyShoot)
+				}
 			}
 		}
 	}
@@ -554,19 +677,26 @@ func (g *Game) updatePowerups() {
 
 // updateAsteroids handles asteroid spawning and updates
 func (g *Game) updateAsteroids() {
-	// Spawn asteroids
+	// Spawn asteroids (respect asteroid limit)
 	g.asteroidSpawn += 1.0 / 60.0
-	if g.asteroidSpawn > 2.0 { // Spawn every 2 seconds
+	if g.asteroidSpawn > 2.0 && len(g.asteroids) < MaxAsteroids {
 		g.asteroidSpawn = 0
-		// Spawn 1-2 asteroids per spawn
+		// Spawn 1-2 asteroids per spawn (limited by available space)
 		spawnCount := 1
 		if rand.Float64() < 0.3 {
 			spawnCount = 2
 		}
+		spaceLeft := MaxAsteroids - len(g.asteroids)
+		if spawnCount > spaceLeft {
+			spawnCount = spaceLeft
+		}
 		for i := 0; i < spawnCount; i++ {
 			x := rand.Float64() * ScreenWidth
 			size := entities.AsteroidSize(rand.Intn(3))
-			g.asteroids = append(g.asteroids, entities.NewAsteroid(x, -40, size))
+			// Get asteroid from pool instead of allocating new one
+			asteroid := g.asteroidPool.Get()
+			*asteroid = *entities.NewAsteroid(x, -40, size)
+			g.asteroids = append(g.asteroids, asteroid)
 		}
 	}
 
@@ -646,7 +776,9 @@ func (g *Game) checkGameOver() {
 		if g.onlineLeaderboard != nil {
 			go func() {
 				if scores, err := g.onlineLeaderboard.GetTopScores(100); err == nil {
+					g.onlineScoresMu.Lock()
 					g.onlineScores = scores
+					g.onlineScoresMu.Unlock()
 				}
 			}()
 		}
@@ -742,20 +874,25 @@ func (g *Game) autoSubmitScoreIfQualified() {
 
 	// Check if score would make it into top 100
 	// If we have cached scores, check against them
-	if len(g.onlineScores) > 0 {
+	g.onlineScoresMu.RLock()
+	scoresLen := len(g.onlineScores)
+	var lowestScore int64
+	if scoresLen >= 100 {
+		lowestScore = g.onlineScores[99].Score
+	}
+	g.onlineScoresMu.RUnlock()
+
+	if scoresLen > 0 {
 		// If we have less than 100 scores, always submit
-		if len(g.onlineScores) < 100 {
+		if scoresLen < 100 {
 			g.submitScoreOnline()
 			return
 		}
 
 		// Check if our score beats the 100th place
-		if len(g.onlineScores) >= 100 {
-			lowestScore := g.onlineScores[99].Score
-			if g.score > lowestScore {
-				g.submitScoreOnline()
-				return
-			}
+		if g.score > lowestScore {
+			g.submitScoreOnline()
+			return
 		}
 	} else {
 		// No cached scores - submit if meets minimum threshold
@@ -778,14 +915,19 @@ func (g *Game) drawOnlineLeaderboard(screen *ebiten.Image) {
 	systems.DrawText(screen, "Difficulty", 550, startY+30, 1, color.RGBA{150, 150, 150, 255})
 	systems.DrawText(screen, "Wave", 750, startY+30, 1, color.RGBA{150, 150, 150, 255})
 
-	// Display top 10
+	// Display top 10 (copy data under lock to minimize lock duration)
+	g.onlineScoresMu.RLock()
 	limit := 10
 	if len(g.onlineScores) < 10 {
 		limit = len(g.onlineScores)
 	}
+	// Copy scores to avoid holding lock during draw calls
+	scoresToDraw := make([]systems.OnlineScore, limit)
+	copy(scoresToDraw, g.onlineScores[:limit])
+	g.onlineScoresMu.RUnlock()
 
 	for i := 0; i < limit; i++ {
-		score := g.onlineScores[i]
+		score := scoresToDraw[i]
 		y := startY + 60 + (i * lineHeight)
 
 		// Highlight if this is the current player's score
@@ -833,8 +975,8 @@ func (g *Game) checkCollisions() {
 				p.Active = false
 				e.Health -= p.Damage
 
-				// Add impact effect
-				g.impactEffects = append(g.impactEffects, entities.NewImpactEffect(e.X, e.Y, 30, color.RGBA{100, 200, 255, 255}))
+				// Add impact effect using pool
+				g.spawnImpactEffect(e.X, e.Y, 30, color.RGBA{100, 200, 255, 255})
 
 				if e.Health <= 0 {
 					e.Active = false
@@ -861,9 +1003,11 @@ func (g *Game) checkCollisions() {
 					g.spawnFloatingScore(e.X, e.Y, int(points)) // Show score popup
 					g.screenShake = 5
 
-					// Chance to spawn powerup
-					if rand.Float64() < 0.15 {
-						g.powerups = append(g.powerups, entities.NewPowerUp(e.X, e.Y))
+					// Chance to spawn powerup (respect limit)
+					if rand.Float64() < 0.15 && len(g.powerups) < MaxPowerUps {
+						powerup := g.powerUpPool.Get()
+						*powerup = *entities.NewPowerUp(e.X, e.Y)
+						g.powerups = append(g.powerups, powerup)
 					}
 				}
 			}
@@ -874,8 +1018,8 @@ func (g *Game) checkCollisions() {
 			if g.checkCircleCollision(p.X, p.Y, p.Radius, g.boss.X, g.boss.Y, g.boss.Radius) {
 				p.Active = false
 
-				// Add impact effect for boss
-				g.impactEffects = append(g.impactEffects, entities.NewImpactEffect(g.boss.X, g.boss.Y, 40, color.RGBA{255, 150, 100, 255}))
+				// Add impact effect for boss using pool
+				g.spawnImpactEffect(g.boss.X, g.boss.Y, 40, color.RGBA{255, 150, 100, 255})
 
 				if g.boss.TakeDamage(p.Damage) {
 					// Boss defeated
@@ -1038,12 +1182,14 @@ func (g *Game) checkCollisions() {
 		}
 	}
 
-	// Player projectiles vs asteroids
+	// Player projectiles vs asteroids (using spatial grid for O(n) instead of O(n²))
 	for _, p := range g.projectiles {
 		if !p.Active || !p.Friendly {
 			continue
 		}
-		for _, a := range g.asteroids {
+		// Query only nearby asteroids using spatial grid
+		nearbyAsteroids := g.spatialGrid.GetNearbyAsteroids(p.X, p.Y, p.Radius+100) // 100 is max expected asteroid radius
+		for _, a := range nearbyAsteroids {
 			if !a.Active {
 				continue
 			}
@@ -1051,8 +1197,8 @@ func (g *Game) checkCollisions() {
 				p.Active = false
 				a.TakeDamage(p.Damage)
 
-				// Add impact effect for asteroid
-				g.impactEffects = append(g.impactEffects, entities.NewImpactEffect(a.X, a.Y, 25, color.RGBA{200, 100, 50, 255}))
+				// Add impact effect for asteroid using pool
+				g.spawnImpactEffect(a.X, a.Y, 25, color.RGBA{200, 100, 50, 255})
 
 				if !a.Active {
 					g.spawnExplosion(a.X, a.Y, a.Radius)
@@ -1069,6 +1215,7 @@ func (g *Game) checkCollisions() {
 					g.addScore(points)
 					g.spawnFloatingScore(a.X, a.Y, int(points)) // Show score popup
 				}
+				break // Projectile can only hit one asteroid
 			}
 		}
 	}
@@ -1088,6 +1235,10 @@ func (g *Game) addScore(points int64) {
 }
 
 func (g *Game) spawnExplosion(x, y, size float64) {
+	// Respect explosion limit
+	if len(g.explosions) >= MaxExplosions {
+		return
+	}
 	// Get explosion from pool instead of allocating new one
 	explosion := g.explosionPool.Get()
 	*explosion = *entities.NewExplosion(x, y, size)
@@ -1096,11 +1247,35 @@ func (g *Game) spawnExplosion(x, y, size float64) {
 }
 
 func (g *Game) spawnExplosionWithType(x, y, size float64, expType entities.ExplosionType) {
+	// Respect explosion limit
+	if len(g.explosions) >= MaxExplosions {
+		return
+	}
 	// Get explosion from pool instead of allocating new one
 	explosion := g.explosionPool.Get()
 	*explosion = *entities.NewExplosionWithType(x, y, size, expType)
 	g.explosions = append(g.explosions, explosion)
 	// Sound is played by the caller based on enemy/asteroid type
+}
+
+// spawnImpactEffect spawns an impact effect using the object pool
+func (g *Game) spawnImpactEffect(x, y, maxRadius float64, c color.RGBA) {
+	// Respect impact effect limit
+	if len(g.impactEffects) >= MaxImpactEffects {
+		return
+	}
+	// Get impact effect from pool instead of allocating new one
+	impact := g.impactEffectPool.Get()
+	impact.X = x
+	impact.Y = y
+	impact.Radius = 2
+	impact.MaxRadius = maxRadius
+	impact.Life = 0.4
+	impact.MaxLife = 0.4
+	impact.Color = c
+	impact.Active = true
+	impact.Expanding = true
+	g.impactEffects = append(g.impactEffects, impact)
 }
 
 func (g *Game) cleanupEntities() {
@@ -1116,11 +1291,13 @@ func (g *Game) cleanupEntities() {
 	}
 	g.projectiles = activeProjectiles
 
-	// Clean enemies
+	// Clean enemies - return inactive ones to pool
 	activeEnemies := g.enemies[:0]
 	for _, e := range g.enemies {
 		if e.Active {
 			activeEnemies = append(activeEnemies, e)
+		} else {
+			g.enemyPool.Return(e)
 		}
 	}
 	g.enemies = activeEnemies
@@ -1137,38 +1314,46 @@ func (g *Game) cleanupEntities() {
 	}
 	g.explosions = activeExplosions
 
-	// Clean powerups
+	// Clean powerups - return inactive ones to pool
 	activePowerups := g.powerups[:0]
 	for _, pu := range g.powerups {
 		if pu.Active {
 			activePowerups = append(activePowerups, pu)
+		} else {
+			g.powerUpPool.Return(pu)
 		}
 	}
 	g.powerups = activePowerups
 
-	// Clean asteroids
+	// Clean asteroids - return inactive ones to pool
 	activeAsteroids := g.asteroids[:0]
 	for _, a := range g.asteroids {
 		if a.Active {
 			activeAsteroids = append(activeAsteroids, a)
+		} else {
+			g.asteroidPool.Return(a)
 		}
 	}
 	g.asteroids = activeAsteroids
 
-	// Clean floating text
+	// Clean floating text - return inactive ones to pool
 	activeFloatingText := g.floatingTexts[:0]
 	for _, ft := range g.floatingTexts {
 		if ft.Active {
 			activeFloatingText = append(activeFloatingText, ft)
+		} else {
+			g.floatingTextPool.Return(ft)
 		}
 	}
 	g.floatingTexts = activeFloatingText
 
-	// Clean impact effects
+	// Clean impact effects - return inactive ones to pool
 	activeImpacts := g.impactEffects[:0]
 	for _, ie := range g.impactEffects {
 		if ie.Active {
 			activeImpacts = append(activeImpacts, ie)
+		} else {
+			g.impactEffectPool.Return(ie)
 		}
 	}
 	g.impactEffects = activeImpacts
@@ -1321,121 +1506,131 @@ func (g *Game) drawGameplay(screen *ebiten.Image, shakeX, shakeY float64) {
 	// Implement depth-sorted drawing using Y-coordinate (painter's algorithm)
 	// Lower Y values (further back in isometric) drawn first
 
-	type drawableEntity struct {
-		y    float64
-		draw func()
-	}
-
-	var entities []drawableEntity
+	// Reuse the pre-allocated slice (clear without deallocating)
+	g.drawableEntities = g.drawableEntities[:0]
 
 	// Add all drawable entities with their Y positions for sorting
 
 	// Powerups
-	for _, pu := range g.powerups {
+	for i, pu := range g.powerups {
 		if pu.Active {
-			puCopy := pu // Capture in closure
-			sprite := g.sprites.GetSpriteForPowerUp(int(puCopy.Type))
-			entities = append(entities, drawableEntity{
-				y: pu.Y,
-				draw: func() {
-					puCopy.Draw(screen, shakeX, shakeY, sprite, g.sprites.SparkleFrames)
-				},
+			g.drawableEntities = append(g.drawableEntities, drawableEntity{
+				y:      pu.Y,
+				index:  i,
+				eType:  entityTypePowerUp,
+				sprite: g.sprites.GetSpriteForPowerUp(int(pu.Type)),
 			})
 		}
 	}
 
 	// Enemies
-	for _, e := range g.enemies {
+	for i, e := range g.enemies {
 		if e.Active {
-			eCopy := e
-			spriteCopy := g.sprites.GetSpriteForEnemy(int(e.Type))
-			entities = append(entities, drawableEntity{
-				y: e.Y,
-				draw: func() {
-					eCopy.Draw(screen, shakeX, shakeY, spriteCopy)
-				},
+			g.drawableEntities = append(g.drawableEntities, drawableEntity{
+				y:      e.Y,
+				index:  i,
+				eType:  entityTypeEnemy,
+				sprite: g.sprites.GetSpriteForEnemy(int(e.Type)),
 			})
 		}
 	}
 
-	// Boss
+	// Boss (index -1 since there's only one)
 	if g.boss != nil && g.boss.Active {
-		bossCopy := g.boss
-		entities = append(entities, drawableEntity{
-			y: g.boss.Y,
-			draw: func() {
-				bossCopy.Draw(screen, shakeX, shakeY)
-			},
+		g.drawableEntities = append(g.drawableEntities, drawableEntity{
+			y:     g.boss.Y,
+			index: 0,
+			eType: entityTypeBoss,
 		})
 	}
 
 	// Projectiles
-	for _, p := range g.projectiles {
+	for i, p := range g.projectiles {
 		if p.Active {
-			pCopy := p
 			var sprite *ebiten.Image
-			if pCopy.Friendly {
+			if p.Friendly {
 				sprite = g.sprites.PlayerProjectileSprite
 			} else {
 				sprite = g.sprites.EnemyProjectileSprite
 			}
-			entities = append(entities, drawableEntity{
-				y: p.Y,
-				draw: func() {
-					pCopy.Draw(screen, shakeX, shakeY, sprite)
-				},
+			g.drawableEntities = append(g.drawableEntities, drawableEntity{
+				y:      p.Y,
+				index:  i,
+				eType:  entityTypeProjectile,
+				sprite: sprite,
 			})
 		}
 	}
 
 	// Explosions
-	for _, ex := range g.explosions {
+	for i, ex := range g.explosions {
 		if ex.Active {
-			exCopy := ex
-			entities = append(entities, drawableEntity{
-				y: ex.Y,
-				draw: func() {
-					exCopy.Draw(screen, shakeX, shakeY)
-				},
+			g.drawableEntities = append(g.drawableEntities, drawableEntity{
+				y:     ex.Y,
+				index: i,
+				eType: entityTypeExplosion,
 			})
 		}
 	}
 
 	// Asteroids
-	for _, a := range g.asteroids {
+	for i, a := range g.asteroids {
 		if a.Active {
-			aCopy := a
-			sprite := g.sprites.GetSpriteForAsteroid(int(aCopy.Size))
-			entities = append(entities, drawableEntity{
-				y: a.Y,
-				draw: func() {
-					perspScale := g.getPerspectiveScale(aCopy.Y)
-					aCopy.Draw(screen, shakeX, shakeY, perspScale, sprite)
-				},
+			g.drawableEntities = append(g.drawableEntities, drawableEntity{
+				y:      a.Y,
+				index:  i,
+				eType:  entityTypeAsteroid,
+				sprite: g.sprites.GetSpriteForAsteroid(int(a.Size)),
 			})
 		}
 	}
 
-	// Player
+	// Player (index 0 since there's only one)
 	if g.player != nil && g.player.Active {
-		playerCopy := g.player
-		entities = append(entities, drawableEntity{
-			y: g.player.Y,
-			draw: func() {
-				playerCopy.Draw(screen, shakeX, shakeY)
-			},
+		g.drawableEntities = append(g.drawableEntities, drawableEntity{
+			y:     g.player.Y,
+			index: 0,
+			eType: entityTypePlayer,
 		})
 	}
 
 	// Sort by Y position (lower Y = further back = drawn first)
-	// Using sort.Slice for O(n log n) performance instead of O(n²) bubble sort
-	sort.Slice(entities, func(i, j int) bool {
-		return entities[i].y < entities[j].y
-	})
+	// Using insertion sort for O(n) performance on mostly-sorted data
+	// (entity Y positions change slowly frame-to-frame, so data is nearly sorted)
+	for i := 1; i < len(g.drawableEntities); i++ {
+		key := g.drawableEntities[i]
+		j := i - 1
+		for j >= 0 && g.drawableEntities[j].y > key.y {
+			g.drawableEntities[j+1] = g.drawableEntities[j]
+			j--
+		}
+		g.drawableEntities[j+1] = key
+	}
 
-	// Draw in sorted order (back to front)
-	for _, entity := range entities {
-		entity.draw()
+	// Draw in sorted order (back to front) using type dispatch instead of closures
+	for _, entity := range g.drawableEntities {
+		switch entity.eType {
+		case entityTypePowerUp:
+			pu := g.powerups[entity.index]
+			pu.Draw(screen, shakeX, shakeY, entity.sprite, g.sprites.SparkleFrames)
+		case entityTypeEnemy:
+			e := g.enemies[entity.index]
+			e.Draw(screen, shakeX, shakeY, entity.sprite)
+		case entityTypeBoss:
+			g.boss.Draw(screen, shakeX, shakeY)
+		case entityTypeProjectile:
+			p := g.projectiles[entity.index]
+			p.Draw(screen, shakeX, shakeY, entity.sprite)
+		case entityTypeExplosion:
+			ex := g.explosions[entity.index]
+			ex.Draw(screen, shakeX, shakeY)
+		case entityTypeAsteroid:
+			a := g.asteroids[entity.index]
+			perspScale := g.getPerspectiveScale(a.Y)
+			a.Draw(screen, shakeX, shakeY, perspScale, entity.sprite)
+		case entityTypePlayer:
+			g.player.Draw(screen, shakeX, shakeY)
+		}
 	}
 
 	// Draw HUD (always on top, screen space)
@@ -1451,6 +1646,15 @@ func (g *Game) drawGameplay(screen *ebiten.Image, shakeX, shakeY float64) {
 			weaponLevel = g.player.WeaponLevel
 		}
 		g.hud.Draw(screen, g.score, g.wave, g.multiplier, health, maxHealth, shield, weaponLevel, ScreenWidth)
+
+		// Draw weapon info panel (shows weapon type, level, and cooldown)
+		if g.player != nil && g.player.WeaponMgr != nil {
+			weapon := g.player.WeaponMgr.GetCurrentWeapon()
+			if weapon != nil {
+				g.hud.DrawWeaponInfo(screen, weapon.Name, weapon.IconEmoji,
+					int(weapon.Level), weapon.FireTimer, weapon.FireRate, g.gameTime)
+			}
+		}
 
 		// Boss indicator
 		if g.bossWave && g.boss != nil {
@@ -1534,7 +1738,10 @@ func (g *Game) drawGameOverOverlay(screen *ebiten.Image) {
 		g.leaderboard.Draw(screen, ScreenWidth/2, 320, g.score)
 
 		// Show online leaderboard if available
-		if len(g.onlineScores) > 0 {
+		g.onlineScoresMu.RLock()
+		hasOnlineScores := len(g.onlineScores) > 0
+		g.onlineScoresMu.RUnlock()
+		if hasOnlineScores {
 			g.drawOnlineLeaderboard(screen)
 		}
 
@@ -1545,19 +1752,55 @@ func (g *Game) drawGameOverOverlay(screen *ebiten.Image) {
 
 // spawnFloatingScore creates a floating score text at the given position
 func (g *Game) spawnFloatingScore(x, y float64, score int) {
-	ft := entities.NewFloatingScore(x, y, score)
+	// Respect floating text limit
+	if len(g.floatingTexts) >= MaxFloatingTexts {
+		return
+	}
+	ft := g.floatingTextPool.Get()
+	ft.X = x
+	ft.Y = y
+	ft.VelY = -2.0
+	ft.Text = fmt.Sprintf("+%d", score)
+	ft.TextColor = color.RGBA{255, 200, 100, 255}
+	ft.Life = 2.0
+	ft.MaxLife = 2.0
+	ft.Active = true
 	g.floatingTexts = append(g.floatingTexts, ft)
 }
 
 // spawnFloatingDamage creates a floating damage indicator at the given position
 func (g *Game) spawnFloatingDamage(x, y float64, damage int) {
-	ft := entities.NewFloatingDamage(x, y, damage)
+	// Respect floating text limit
+	if len(g.floatingTexts) >= MaxFloatingTexts {
+		return
+	}
+	ft := g.floatingTextPool.Get()
+	ft.X = x
+	ft.Y = y
+	ft.VelY = -2.0
+	ft.Text = fmt.Sprintf("-%d", damage)
+	ft.TextColor = color.RGBA{255, 50, 50, 255}
+	ft.Life = 2.0
+	ft.MaxLife = 2.0
+	ft.Active = true
 	g.floatingTexts = append(g.floatingTexts, ft)
 }
 
 // spawnFloatingUpgrade creates a floating weapon level indicator at the given position
 func (g *Game) spawnFloatingUpgrade(x, y float64, level int) {
-	ft := entities.NewFloatingUpgrade(x, y, level)
+	// Respect floating text limit
+	if len(g.floatingTexts) >= MaxFloatingTexts {
+		return
+	}
+	ft := g.floatingTextPool.Get()
+	ft.X = x
+	ft.Y = y
+	ft.VelY = -2.0
+	ft.Text = fmt.Sprintf("Lvl %d", level)
+	ft.TextColor = color.RGBA{100, 255, 200, 255}
+	ft.Life = 2.0
+	ft.MaxLife = 2.0
+	ft.Active = true
 	g.floatingTexts = append(g.floatingTexts, ft)
 }
 
@@ -1597,8 +1840,8 @@ func (g *Game) updateMiniBossSpawning() {
 		}
 	}
 
-	// Spawn new mini-boss if conditions are met
-	if g.miniBossSpawnTimer >= spawnInterval && activeMiniBosses < maxMiniBosses {
+	// Spawn new mini-boss if conditions are met (also respect global enemy limit)
+	if g.miniBossSpawnTimer >= spawnInterval && activeMiniBosses < maxMiniBosses && len(g.enemies) < MaxEnemies {
 		g.miniBossSpawnTimer = 0
 
 		// Alternate between two enemy types for mini-bosses
@@ -1615,7 +1858,9 @@ func (g *Game) updateMiniBossSpawning() {
 			spawnX = float64(ScreenWidth - 100)
 		}
 
-		miniBoss := entities.NewEnemy(spawnX, 50, miniBossType)
+		miniBoss := g.enemyPool.Get()
+		// Configure as the appropriate enemy type
+		*miniBoss = *entities.NewEnemy(spawnX, 50, miniBossType)
 		// Enhance it to be a mini-boss (increased health and points)
 		miniBoss.MaxHealth = 75 + g.boss.BossLevel*25
 		miniBoss.Health = miniBoss.MaxHealth
@@ -1627,6 +1872,56 @@ func (g *Game) updateMiniBossSpawning() {
 		g.miniBossesSpawned++
 		g.sound.PlaySound(systems.SoundWaveStart) // Alert sound for mini-boss spawn
 	}
+}
+
+// cleanupGameEntities returns all pooled entities and resets entity state
+// Called when transitioning away from a game session (e.g., GameOver -> Menu)
+func (g *Game) cleanupGameEntities() {
+	// Return all entities to pools
+	g.projectilePool.ReturnAll()
+	g.explosionPool.ReturnAll()
+	g.enemyPool.ReturnAll()
+	g.floatingTextPool.ReturnAll()
+	g.impactEffectPool.ReturnAll()
+	g.asteroidPool.ReturnAll()
+	g.powerUpPool.ReturnAll()
+
+	// Reset slices (keeps backing arrays but signals cleanup)
+	g.enemies = g.enemies[:0]
+	g.projectiles = g.projectiles[:0]
+	g.explosions = g.explosions[:0]
+	g.powerups = g.powerups[:0]
+	g.asteroids = g.asteroids[:0]
+	g.floatingTexts = g.floatingTexts[:0]
+	g.impactEffects = g.impactEffects[:0]
+
+	// Clear boss reference
+	g.boss = nil
+
+	// Clear spatial grid
+	g.spatialGrid.Clear()
+
+	// Reset announcements
+	g.announcements.Clear()
+
+	// Trim excess pool capacity to reduce memory after intense sessions
+	// Keep at least the initial capacity to avoid repeated allocations
+	g.projectilePool.TrimExcess(200)
+	g.explosionPool.TrimExcess(50)
+	g.enemyPool.TrimExcess(50)
+	g.floatingTextPool.TrimExcess(25)
+	g.impactEffectPool.TrimExcess(20)
+	g.asteroidPool.TrimExcess(20)
+	g.powerUpPool.TrimExcess(10)
+
+	// Reset pool statistics for fresh tracking in next game
+	g.projectilePool.ResetStats()
+	g.explosionPool.ResetStats()
+	g.enemyPool.ResetStats()
+	g.floatingTextPool.ResetStats()
+	g.impactEffectPool.ResetStats()
+	g.asteroidPool.ResetStats()
+	g.powerUpPool.ResetStats()
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {

@@ -204,26 +204,14 @@ func (h *Hazard) drawBlackHole(screen *ebiten.Image, x, y float32, pulse float32
 	// Draw event horizon
 	vector.DrawFilledCircle(screen, x, y, radius*0.7, color.RGBA{20, 20, 30, 255}, true)
 
-	// Accretion disk - rotating rings
+	// Accretion disk - use StrokeCircle instead of 64 individual line segments
+	// This reduces draw calls from 64 to 4 while maintaining visual quality
 	for i := 0; i < 4; i++ {
 		ringRadius := radius * (0.4 + float32(i)*0.15)
-		angle := float64(h.AnimTimer) * (0.1 - float64(i)*0.02)
-
-		// Draw arc of ring
-		steps := 16
-		for j := 0; j < steps; j++ {
-			a1 := angle + float64(j)*2*math.Pi/float64(steps)
-			a2 := angle + float64(j+1)*2*math.Pi/float64(steps)
-
-			p1x := x + float32(math.Cos(a1))*ringRadius
-			p1y := y + float32(math.Sin(a1))*ringRadius
-			p2x := x + float32(math.Cos(a2))*ringRadius
-			p2y := y + float32(math.Sin(a2))*ringRadius
-
-			alpha := uint8(200 - i*40)
-			ringColor := color.RGBA{100, 200, 255, alpha}
-			vector.StrokeLine(screen, p1x, p1y, p2x, p2y, 2, ringColor, true)
-		}
+		alpha := uint8(200 - i*40)
+		ringColor := color.RGBA{100, 200, 255, alpha}
+		// StrokeCircle is a single draw call vs 16 line segments
+		vector.StrokeCircle(screen, x, y, ringRadius, 2, ringColor, true)
 	}
 
 	// Central singularity

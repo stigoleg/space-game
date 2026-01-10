@@ -6,6 +6,14 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
+// ThrusterParticle represents a particle in the player's thruster trail
+type ThrusterParticle struct {
+	X, Y, Life float64
+}
+
+// Maximum thruster trail length constant
+const MaxThrusterTrailLen = 15
+
 type Player struct {
 	X, Y         float64
 	VelX, VelY   float64
@@ -39,8 +47,10 @@ type Player struct {
 	UltimateActive    bool    // Ultimate ability activated
 	UltimateTimer     float64 // Duration of ultimate effect
 
-	// Thruster trail system
-	ThrusterTrail []struct{ X, Y, Life float64 }
+	// Thruster trail system (ring buffer to avoid allocations)
+	ThrusterTrail     [MaxThrusterTrailLen]ThrusterParticle
+	ThrusterTrailHead int // Current write position in ring buffer
+	ThrusterTrailLen  int // Current number of valid trail particles
 
 	// Mystery Power-Up temporary effects
 	SpeedBoostTimer      float64 // Speed boost duration
@@ -82,7 +92,7 @@ func NewPlayer(x, y float64) *Player {
 		MaxUltimateCharge: 1.0,  // Max ultimate charge
 		UltimateActive:    false,
 		UltimateTimer:     0,
-		ThrusterTrail:     make([]struct{ X, Y, Life float64 }, 0, 10),
+		// ThrusterTrail is zero-initialized as ring buffer
 
 		// Mystery power-up effects
 		SpeedBoostTimer:      0,
@@ -184,25 +194,35 @@ func (p *Player) Update(screenWidth, screenHeight int, gameTime float64) {
 	p.X += p.VelX
 	p.Y += p.VelY
 
-	// Add thruster trail particles when moving
+	// Add thruster trail particles when moving (ring buffer - no allocations)
 	if (p.VelX != 0 || p.VelY != 0) && rand.Float64() < 0.6 {
-		p.ThrusterTrail = append(p.ThrusterTrail, struct{ X, Y, Life float64 }{
+		p.ThrusterTrail[p.ThrusterTrailHead] = ThrusterParticle{
 			X:    p.X + (rand.Float64()-0.5)*8,
 			Y:    p.Y + p.Radius + (rand.Float64()-0.5)*4,
 			Life: 0.5,
-		})
-		// Keep trail list bounded
-		if len(p.ThrusterTrail) > 15 {
-			p.ThrusterTrail = p.ThrusterTrail[1:]
+		}
+		p.ThrusterTrailHead = (p.ThrusterTrailHead + 1) % MaxThrusterTrailLen
+		if p.ThrusterTrailLen < MaxThrusterTrailLen {
+			p.ThrusterTrailLen++
 		}
 	}
 
-	// Update thruster trail (iterate backwards to avoid skipping elements on removal)
-	for i := len(p.ThrusterTrail) - 1; i >= 0; i-- {
-		p.ThrusterTrail[i].Life -= 1.0 / 60.0
-		p.ThrusterTrail[i].Y += 1.5 // Trail drifts down slightly
-		if p.ThrusterTrail[i].Life <= 0 {
-			p.ThrusterTrail = append(p.ThrusterTrail[:i], p.ThrusterTrail[i+1:]...)
+	// Update thruster trail particles (update life and position, mark dead ones)
+	// For ring buffer, we iterate through all valid particles
+	for i := 0; i < p.ThrusterTrailLen; i++ {
+		idx := (p.ThrusterTrailHead - p.ThrusterTrailLen + i + MaxThrusterTrailLen) % MaxThrusterTrailLen
+		p.ThrusterTrail[idx].Life -= 1.0 / 60.0
+		p.ThrusterTrail[idx].Y += 1.5 // Trail drifts down slightly
+	}
+
+	// Remove expired particles from the tail of the ring buffer
+	for p.ThrusterTrailLen > 0 {
+		// Oldest particle is at (ThrusterTrailHead - ThrusterTrailLen)
+		oldestIdx := (p.ThrusterTrailHead - p.ThrusterTrailLen + MaxThrusterTrailLen) % MaxThrusterTrailLen
+		if p.ThrusterTrail[oldestIdx].Life <= 0 {
+			p.ThrusterTrailLen-- // Remove from tail
+		} else {
+			break // Oldest is still alive, stop checking
 		}
 	}
 

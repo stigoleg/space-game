@@ -7,16 +7,17 @@ import (
 
 // GameConfig holds all game configuration
 type GameConfig struct {
-	Game       GameSettings     `json:"game"`
-	Player     PlayerConfig     `json:"player"`
-	Enemy      EnemyConfig      `json:"enemy"`
-	Boss       BossConfig       `json:"boss"`
-	Projectile ProjectileConfig `json:"projectile"`
-	Powerup    PowerupConfig    `json:"powerup"`
-	Wave       WaveConfig       `json:"wave"`
-	Audio      AudioConfig      `json:"audio"`
-	Graphics   GraphicsConfig   `json:"graphics"`
-	Pool       PoolConfig       `json:"pool"`
+	Game         GameSettings     `json:"game"`
+	Player       PlayerConfig     `json:"player"`
+	Enemy        EnemyConfig      `json:"enemy"`
+	Boss         BossConfig       `json:"boss"`
+	Projectile   ProjectileConfig `json:"projectile"`
+	Powerup      PowerupConfig    `json:"powerup"`
+	Wave         WaveConfig       `json:"wave"`
+	Audio        AudioConfig      `json:"audio"`
+	Graphics     GraphicsConfig   `json:"graphics"`
+	Pool         PoolConfig       `json:"pool"`
+	EntityLimits EntityLimits     `json:"entity_limits"`
 }
 
 // GameSettings holds general game settings
@@ -130,6 +131,17 @@ type PoolConfig struct {
 	MaxPoolGrowth             int `json:"max_pool_growth"`
 }
 
+// EntityLimits holds maximum entity count safeguards
+type EntityLimits struct {
+	MaxProjectiles   int `json:"max_projectiles"`
+	MaxExplosions    int `json:"max_explosions"`
+	MaxFloatingTexts int `json:"max_floating_texts"`
+	MaxImpactEffects int `json:"max_impact_effects"`
+	MaxEnemies       int `json:"max_enemies"`
+	MaxAsteroids     int `json:"max_asteroids"`
+	MaxPowerups      int `json:"max_powerups"`
+}
+
 // DefaultConfig returns the default game configuration
 func DefaultConfig() *GameConfig {
 	return &GameConfig{
@@ -223,6 +235,15 @@ func DefaultConfig() *GameConfig {
 			InitialExplosionPoolSize:  50,
 			InitialParticlePoolSize:   500,
 			MaxPoolGrowth:             1000,
+		},
+		EntityLimits: EntityLimits{
+			MaxProjectiles:   500,
+			MaxExplosions:    100,
+			MaxFloatingTexts: 50,
+			MaxImpactEffects: 50,
+			MaxEnemies:       100,
+			MaxAsteroids:     30,
+			MaxPowerups:      20,
 		},
 	}
 }

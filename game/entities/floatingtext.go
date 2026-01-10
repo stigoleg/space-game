@@ -98,6 +98,32 @@ func (ft *FloatingText) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 	}
 }
 
+// Poolable interface implementation
+
+// Reset resets the floating text to default state for reuse
+func (ft *FloatingText) Reset() {
+	ft.X = 0
+	ft.Y = 0
+	ft.VelY = -2.0
+	ft.Text = ""
+	ft.TextColor = color.RGBA{255, 255, 255, 255}
+	ft.Life = 2.0
+	ft.MaxLife = 2.0
+	ft.Active = false
+}
+
+// IsActive returns whether the floating text is active (already exists)
+
+// SetActive sets the active state of the floating text
+func (ft *FloatingText) SetActive(active bool) {
+	ft.Active = active
+}
+
+// IsActive returns whether the floating text is active
+func (ft *FloatingText) IsActive() bool {
+	return ft.Active
+}
+
 // FloatingParticle represents a visual particle effect that floats
 type FloatingParticle struct {
 	X, Y       float64

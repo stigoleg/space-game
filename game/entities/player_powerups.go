@@ -37,6 +37,8 @@ func (p *Player) ApplyPowerUp(puType PowerUpType) (string, bool) {
 		if basicGun != nil && basicGun.Level < WeaponLevelMkV {
 			// Upgrade basic gun
 			p.WeaponMgr.UpgradeWeapon(WeaponTypeSpread)
+			// Keep deprecated WeaponLevel in sync
+			p.WeaponLevel = int(basicGun.Level)
 			return basicGun.IconEmoji + " " + basicGun.Name + " UPGRADED!", true
 		}
 
@@ -76,11 +78,6 @@ func (p *Player) ApplyPowerUp(puType PowerUpType) (string, bool) {
 			weapon := p.WeaponMgr.GetCurrentWeapon()
 			if weapon != nil && p.WeaponMgr.UpgradeWeapon(weapon.Type) {
 				return weapon.IconEmoji + " " + weapon.Name + " UPGRADED!", true
-			}
-			// Keep compatibility with old weapon level system
-			if p.WeaponLevel < 5 {
-				p.WeaponLevel++
-				return "WEAPON LEVEL UP!", true
 			}
 		}
 		return "", false

@@ -68,7 +68,11 @@ func (p *Player) createProjectilesForWeapon(weapon *Weapon) []*Projectile {
 	return projectiles
 }
 
-// createSideBlasters creates 2 angled shots (1 on each side) - optimized for performance
+// sideBlasterCounter tracks which side to fire next (alternates each shot)
+var sideBlasterCounter int
+
+// createSideBlasters creates 1 angled shot (alternating sides) - optimized for performance
+// OPTIMIZED: Reduced from 2 simultaneous shots to 1 alternating shot (-50% projectiles)
 func (p *Player) createSideBlasters() []*Projectile {
 	var projectiles []*Projectile
 
@@ -77,31 +81,32 @@ func (p *Player) createSideBlasters() []*Projectile {
 		return projectiles
 	}
 
-	// Create 2 angled shots (1 on each side) - reduced from 4 for performance
-	// Use the basic gun's properties for these shots
+	// Create 1 angled shot, alternating between left and right each shot
 	spread := 0.2 // Base spread angle
-	angles := []float64{
-		-spread * 2.0, // Left side
-		spread * 2.0,  // Right side
-	}
 
-	for _, spreadAngle := range angles {
-		angle := -math.Pi/2 + spreadAngle
-		velX := math.Cos(angle) * basicGun.ProjectileSpeed / 60.0
-		velY := math.Sin(angle) * basicGun.ProjectileSpeed / 60.0
-
-		proj := NewProjectileWithColor(
-			p.X,
-			p.Y-p.Radius,
-			velX,
-			velY,
-			true,
-			int(basicGun.Damage),
-			basicGun.Color,
-			basicGun.GlowColor,
-		)
-		projectiles = append(projectiles, proj)
+	// Alternate between left (-1) and right (+1)
+	side := float64(-1)
+	if sideBlasterCounter%2 == 1 {
+		side = 1
 	}
+	sideBlasterCounter++
+
+	spreadAngle := side * spread * 2.0
+	angle := -math.Pi/2 + spreadAngle
+	velX := math.Cos(angle) * basicGun.ProjectileSpeed / 60.0
+	velY := math.Sin(angle) * basicGun.ProjectileSpeed / 60.0
+
+	proj := NewProjectileWithColor(
+		p.X,
+		p.Y-p.Radius,
+		velX,
+		velY,
+		true,
+		int(basicGun.Damage),
+		basicGun.Color,
+		basicGun.GlowColor,
+	)
+	projectiles = append(projectiles, proj)
 
 	return projectiles
 }
@@ -111,10 +116,11 @@ func (p *Player) createStandardProjectiles(weapon *Weapon) []*Projectile {
 	var projectiles []*Projectile
 
 	// Special patterns for the basic gun progression
+	// All patterns ensure at least one projectile goes straight forward
 	if weapon.Type == WeaponTypeSpread {
 		switch weapon.ProjectileCount {
 		case 1:
-			// Level 1: Single shot straight up
+			// MkI and MkII: Single shot straight forward
 			proj := NewProjectileWithColor(
 				p.X,
 				p.Y-p.Radius,
@@ -128,81 +134,23 @@ func (p *Player) createStandardProjectiles(weapon *Weapon) []*Projectile {
 			projectiles = append(projectiles, proj)
 			return projectiles
 
-		case 2:
-			// Level 2: Two shots straight up (side by side)
-			for i := 0; i < 2; i++ {
-				offset := (float64(i) - 0.5) * 10 // ±5 pixels horizontal
-				proj := NewProjectileWithColor(
-					p.X+offset,
-					p.Y-p.Radius,
-					0,
-					-weapon.ProjectileSpeed/60.0,
-					true,
-					int(weapon.Damage),
-					weapon.Color,
-					weapon.GlowColor,
-				)
-				projectiles = append(projectiles, proj)
-			}
-			return projectiles
+		case 3:
+			// MkIII and MkIV: 1 center forward + 2 angled (left and right)
+			// Center shot (always straight forward)
+			proj := NewProjectileWithColor(
+				p.X,
+				p.Y-p.Radius,
+				0,
+				-weapon.ProjectileSpeed/60.0,
+				true,
+				int(weapon.Damage),
+				weapon.Color,
+				weapon.GlowColor,
+			)
+			projectiles = append(projectiles, proj)
 
-		case 4:
-			// Level 3: 2 center straight + 1 each side angled
-			// Two center shots
-			for i := 0; i < 2; i++ {
-				offset := (float64(i) - 0.5) * 10
-				proj := NewProjectileWithColor(
-					p.X+offset,
-					p.Y-p.Radius,
-					0,
-					-weapon.ProjectileSpeed/60.0,
-					true,
-					int(weapon.Damage),
-					weapon.Color,
-					weapon.GlowColor,
-				)
-				projectiles = append(projectiles, proj)
-			}
 			// Two angled shots (left and right)
-			for i := 0; i < 2; i++ {
-				spreadAngle := weapon.Spread * (float64(i) - 0.5) * 2.5 // Wider angle
-				angle := -math.Pi/2 + spreadAngle
-				velX := math.Cos(angle) * weapon.ProjectileSpeed / 60.0
-				velY := math.Sin(angle) * weapon.ProjectileSpeed / 60.0
-
-				proj := NewProjectileWithColor(
-					p.X,
-					p.Y-p.Radius,
-					velX,
-					velY,
-					true,
-					int(weapon.Damage),
-					weapon.Color,
-					weapon.GlowColor,
-				)
-				projectiles = append(projectiles, proj)
-			}
-			return projectiles
-
-		case 6:
-			// Level 4: 2 center straight + 2 each side (4 angled total)
-			// Two center shots
-			for i := 0; i < 2; i++ {
-				offset := (float64(i) - 0.5) * 10
-				proj := NewProjectileWithColor(
-					p.X+offset,
-					p.Y-p.Radius,
-					0,
-					-weapon.ProjectileSpeed/60.0,
-					true,
-					int(weapon.Damage),
-					weapon.Color,
-					weapon.GlowColor,
-				)
-				projectiles = append(projectiles, proj)
-			}
-			// Four angled shots (2 left, 2 right)
-			angles := []float64{-weapon.Spread * 1.5, -weapon.Spread * 3.0, weapon.Spread * 1.5, weapon.Spread * 3.0}
+			angles := []float64{-weapon.Spread * 2.0, weapon.Spread * 2.0}
 			for _, spreadAngle := range angles {
 				angle := -math.Pi/2 + spreadAngle
 				velX := math.Cos(angle) * weapon.ProjectileSpeed / 60.0
@@ -222,27 +170,25 @@ func (p *Player) createStandardProjectiles(weapon *Weapon) []*Projectile {
 			}
 			return projectiles
 
-		case 8:
-			// Level 5: 2 center straight + 3 each side (6 angled total)
-			// Two center shots
-			for i := 0; i < 2; i++ {
-				offset := (float64(i) - 0.5) * 10
-				proj := NewProjectileWithColor(
-					p.X+offset,
-					p.Y-p.Radius,
-					0,
-					-weapon.ProjectileSpeed/60.0,
-					true,
-					int(weapon.Damage),
-					weapon.Color,
-					weapon.GlowColor,
-				)
-				projectiles = append(projectiles, proj)
-			}
-			// Six angled shots (3 left, 3 right)
+		case 5:
+			// MkV: 1 center forward + 4 angled (2 left, 2 right)
+			// Center shot (always straight forward)
+			proj := NewProjectileWithColor(
+				p.X,
+				p.Y-p.Radius,
+				0,
+				-weapon.ProjectileSpeed/60.0,
+				true,
+				int(weapon.Damage),
+				weapon.Color,
+				weapon.GlowColor,
+			)
+			projectiles = append(projectiles, proj)
+
+			// Four angled shots (2 left, 2 right at different angles)
 			angles := []float64{
-				-weapon.Spread * 1.0, -weapon.Spread * 2.0, -weapon.Spread * 3.5,
-				weapon.Spread * 1.0, weapon.Spread * 2.0, weapon.Spread * 3.5,
+				-weapon.Spread * 1.5, -weapon.Spread * 3.0,
+				weapon.Spread * 1.5, weapon.Spread * 3.0,
 			}
 			for _, spreadAngle := range angles {
 				angle := -math.Pi/2 + spreadAngle
@@ -266,11 +212,12 @@ func (p *Player) createStandardProjectiles(weapon *Weapon) []*Projectile {
 	}
 
 	// Standard spread pattern for other weapons
+	// Ensure at least one projectile goes forward by centering the spread
 	for i := 0; i < weapon.ProjectileCount; i++ {
-		// Calculate spread angle
+		// Calculate spread angle - centered so middle projectile(s) go forward
 		spreadAngle := 0.0
 		if weapon.ProjectileCount > 1 {
-			// Distribute projectiles evenly across spread
+			// Distribute projectiles evenly across spread, centered on forward
 			spreadAngle = weapon.Spread * (float64(i) - float64(weapon.ProjectileCount-1)/2.0)
 		}
 
@@ -354,10 +301,10 @@ func (p *Player) createChainLightning(weapon *Weapon) []*Projectile {
 
 	// Enable chaining behavior
 	proj.Chaining = true
-	proj.ChainCount = 3                                // Can chain up to 3 times
-	proj.ChainRange = 150.0                            // Range to find next target
-	proj.Radius = 10                                   // Larger hitbox for lightning
-	proj.Trail = make([]struct{ X, Y float64 }, 0, 12) // Longer trail
+	proj.ChainCount = 3     // Can chain up to 3 times
+	proj.ChainRange = 150.0 // Range to find next target
+	proj.Radius = 10        // Larger hitbox for lightning
+	// Trail uses fixed-size ring buffer, no need to initialize
 
 	projectiles = append(projectiles, proj)
 
@@ -368,9 +315,34 @@ func (p *Player) createChainLightning(weapon *Weapon) []*Projectile {
 func (p *Player) createFlamethrower(weapon *Weapon) []*Projectile {
 	var projectiles []*Projectile
 
-	for i := 0; i < weapon.ProjectileCount; i++ {
-		// Wide spread for flame cone
-		spreadAngle := weapon.Spread * (float64(i) - float64(weapon.ProjectileCount-1)/2.0)
+	// Always include a center forward flame
+	// First create the center flame (straight forward)
+	centerProj := NewProjectileWithColor(
+		p.X,
+		p.Y-p.Radius,
+		0,
+		-weapon.ProjectileSpeed/60.0,
+		true,
+		int(weapon.Damage),
+		weapon.Color,
+		weapon.GlowColor,
+	)
+	centerProj.Burning = true
+	centerProj.BurnDuration = 3.0
+	centerProj.BurnDamage = 5
+	projectiles = append(projectiles, centerProj)
+
+	// Add side flames if projectile count > 1
+	sideCount := weapon.ProjectileCount - 1
+	for i := 0; i < sideCount; i++ {
+		// Alternate left and right for even distribution
+		side := float64(1)
+		if i%2 == 0 {
+			side = -1
+		}
+		spreadMultiplier := float64((i/2)+1) * 0.5
+
+		spreadAngle := side * weapon.Spread * spreadMultiplier
 
 		// Calculate velocity with spread
 		angle := -math.Pi/2 + spreadAngle

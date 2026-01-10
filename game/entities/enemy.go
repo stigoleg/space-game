@@ -215,3 +215,56 @@ func (e *Enemy) GetSpeed() float64 {
 func (e *Enemy) SetSpeed(speed float64) {
 	e.Speed = speed
 }
+
+// Poolable interface implementation
+
+// Reset resets the enemy to default state for reuse
+func (e *Enemy) Reset() {
+	e.X = 0
+	e.Y = 0
+	e.VelX = 0
+	e.VelY = 0
+	e.Radius = 15
+	e.Speed = 2
+	e.Health = 10
+	e.MaxHealth = 10
+	e.Points = 10
+	e.Type = EnemyScout
+	e.Active = false
+	e.ShootTimer = 0
+	e.ShootRate = 0
+	e.AnimTimer = 0
+	e.Phase = 0
+
+	// Reset burning
+	e.Burning = false
+	e.BurnDuration = 0
+	e.BurnDamage = 0
+	e.BurnTickTimer = 0
+
+	// Reset formation
+	e.FormationType = FormationTypeNone
+	e.FormationID = 0
+	e.IsFormationLeader = false
+	e.FormationTargetX = 0
+	e.FormationTargetY = 0
+	e.FormationIndex = 0
+	e.NearbyAllies = nil
+	e.LastShootTime = 0
+	e.CoorditatedShoot = false
+
+	// Reset special abilities
+	e.ShieldPoints = 0
+	e.MaxShieldPoints = 0
+	e.ShieldRegenTimer = 0
+	e.HasSplit = false
+	e.SniperLockTimer = 0
+	e.SniperLocked = false
+	e.SniperTargetX = 0
+	e.SniperTargetY = 0
+}
+
+// SetActive sets the active state of the enemy
+func (e *Enemy) SetActive(active bool) {
+	e.Active = active
+}

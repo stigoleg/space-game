@@ -19,8 +19,12 @@ func (p *Player) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 	x := float32(p.X + shakeX)
 	y := float32(p.Y + shakeY)
 
-	// Draw thruster trail particles
-	for _, trail := range p.ThrusterTrail {
+	// Draw thruster trail particles (using ring buffer)
+	for i := 0; i < p.ThrusterTrailLen; i++ {
+		// Calculate index in ring buffer (oldest first)
+		idx := (p.ThrusterTrailHead - p.ThrusterTrailLen + i + MaxThrusterTrailLen) % MaxThrusterTrailLen
+		trail := p.ThrusterTrail[idx]
+
 		lifeRatio := trail.Life / 0.5
 		alpha := uint8(150 * lifeRatio)
 		trailColor := color.RGBA{100, 150, 255, alpha}

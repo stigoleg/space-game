@@ -24,6 +24,13 @@ type SpatialGrid struct {
 	seenProjectiles map[*entities.Projectile]bool
 	seenPowerups    map[*entities.PowerUp]bool
 	seenAsteroids   map[*entities.Asteroid]bool
+
+	// Reusable slice buffers to avoid per-query allocations
+	cellsBuffer      [][2]int               // For getCellsInRadius
+	enemyBuffer      []*entities.Enemy      // For GetNearbyEnemies
+	projectileBuffer []*entities.Projectile // For GetNearbyProjectiles
+	powerupBuffer    []*entities.PowerUp    // For GetNearbyPowerups
+	asteroidBuffer   []*entities.Asteroid   // For GetNearbyAsteroids
 }
 
 // GridCell holds entities in a specific grid cell
@@ -40,15 +47,20 @@ func NewSpatialGrid(screenWidth, screenHeight, cellSize float64) *SpatialGrid {
 	gridH := int(screenHeight/cellSize) + 1
 
 	sg := &SpatialGrid{
-		cellSize:        cellSize,
-		gridWidth:       gridW,
-		gridHeight:      gridH,
-		screenW:         screenWidth,
-		screenH:         screenHeight,
-		seenEnemies:     make(map[*entities.Enemy]bool, 64),
-		seenProjectiles: make(map[*entities.Projectile]bool, 128),
-		seenPowerups:    make(map[*entities.PowerUp]bool, 16),
-		seenAsteroids:   make(map[*entities.Asteroid]bool, 32),
+		cellSize:         cellSize,
+		gridWidth:        gridW,
+		gridHeight:       gridH,
+		screenW:          screenWidth,
+		screenH:          screenHeight,
+		seenEnemies:      make(map[*entities.Enemy]bool, 64),
+		seenProjectiles:  make(map[*entities.Projectile]bool, 128),
+		seenPowerups:     make(map[*entities.PowerUp]bool, 16),
+		seenAsteroids:    make(map[*entities.Asteroid]bool, 32),
+		cellsBuffer:      make([][2]int, 0, 9), // Typically 1-9 cells
+		enemyBuffer:      make([]*entities.Enemy, 0, 32),
+		projectileBuffer: make([]*entities.Projectile, 0, 64),
+		powerupBuffer:    make([]*entities.PowerUp, 0, 8),
+		asteroidBuffer:   make([]*entities.Asteroid, 0, 16),
 	}
 
 	sg.initializeGrids()
@@ -106,8 +118,10 @@ func (sg *SpatialGrid) getCellCoords(x, y float64) (int, int) {
 
 // getCellsInRadius returns all cell coordinates within a radius of a position
 // This accounts for entities that span multiple cells
+// NOTE: Returns a slice backed by an internal buffer - do not store the result
 func (sg *SpatialGrid) getCellsInRadius(x, y, radius float64) [][2]int {
-	cells := make([][2]int, 0, 9) // Typically 1-9 cells
+	// Reuse the buffer (clear without deallocating)
+	sg.cellsBuffer = sg.cellsBuffer[:0]
 
 	// Calculate bounding box
 	minX := x - radius
@@ -122,11 +136,11 @@ func (sg *SpatialGrid) getCellsInRadius(x, y, radius float64) [][2]int {
 	// Add all cells in range
 	for cy := minCellY; cy <= maxCellY; cy++ {
 		for cx := minCellX; cx <= maxCellX; cx++ {
-			cells = append(cells, [2]int{cx, cy})
+			sg.cellsBuffer = append(sg.cellsBuffer, [2]int{cx, cy})
 		}
 	}
 
-	return cells
+	return sg.cellsBuffer
 }
 
 // AddEnemy adds an enemy to the appropriate grid cells
@@ -184,91 +198,95 @@ func (sg *SpatialGrid) AddAsteroid(asteroid *entities.Asteroid) {
 }
 
 // GetNearbyEnemies returns all enemies near a position
+// NOTE: Returns a slice backed by an internal buffer - do not store the result
 func (sg *SpatialGrid) GetNearbyEnemies(x, y, radius float64) []*entities.Enemy {
 	cells := sg.getCellsInRadius(x, y, radius)
-	enemies := make([]*entities.Enemy, 0, 32) // Pre-allocate reasonable size
 
-	// Clear and reuse map to avoid allocations
-	for k := range sg.seenEnemies {
-		delete(sg.seenEnemies, k)
-	}
+	// Reuse the buffer (clear without deallocating)
+	sg.enemyBuffer = sg.enemyBuffer[:0]
+
+	// Clear and reuse map using builtin (more efficient than delete loop)
+	clear(sg.seenEnemies)
 
 	for _, cell := range cells {
 		for _, enemy := range sg.enemyGrid[cell[1]][cell[0]].Enemies {
 			if !sg.seenEnemies[enemy] {
-				enemies = append(enemies, enemy)
+				sg.enemyBuffer = append(sg.enemyBuffer, enemy)
 				sg.seenEnemies[enemy] = true
 			}
 		}
 	}
 
-	return enemies
+	return sg.enemyBuffer
 }
 
 // GetNearbyProjectiles returns all projectiles near a position
+// NOTE: Returns a slice backed by an internal buffer - do not store the result
 func (sg *SpatialGrid) GetNearbyProjectiles(x, y, radius float64) []*entities.Projectile {
 	cells := sg.getCellsInRadius(x, y, radius)
-	projectiles := make([]*entities.Projectile, 0, 64)
 
-	// Clear and reuse map to avoid allocations
-	for k := range sg.seenProjectiles {
-		delete(sg.seenProjectiles, k)
-	}
+	// Reuse the buffer (clear without deallocating)
+	sg.projectileBuffer = sg.projectileBuffer[:0]
+
+	// Clear and reuse map using builtin (more efficient than delete loop)
+	clear(sg.seenProjectiles)
 
 	for _, cell := range cells {
 		for _, proj := range sg.projectileGrid[cell[1]][cell[0]].Projectiles {
 			if !sg.seenProjectiles[proj] {
-				projectiles = append(projectiles, proj)
+				sg.projectileBuffer = append(sg.projectileBuffer, proj)
 				sg.seenProjectiles[proj] = true
 			}
 		}
 	}
 
-	return projectiles
+	return sg.projectileBuffer
 }
 
 // GetNearbyPowerups returns all powerups near a position
+// NOTE: Returns a slice backed by an internal buffer - do not store the result
 func (sg *SpatialGrid) GetNearbyPowerups(x, y, radius float64) []*entities.PowerUp {
 	cells := sg.getCellsInRadius(x, y, radius)
-	powerups := make([]*entities.PowerUp, 0, 8)
 
-	// Clear and reuse map to avoid allocations
-	for k := range sg.seenPowerups {
-		delete(sg.seenPowerups, k)
-	}
+	// Reuse the buffer (clear without deallocating)
+	sg.powerupBuffer = sg.powerupBuffer[:0]
+
+	// Clear and reuse map using builtin (more efficient than delete loop)
+	clear(sg.seenPowerups)
 
 	for _, cell := range cells {
 		for _, powerup := range sg.powerupGrid[cell[1]][cell[0]].Powerups {
 			if !sg.seenPowerups[powerup] {
-				powerups = append(powerups, powerup)
+				sg.powerupBuffer = append(sg.powerupBuffer, powerup)
 				sg.seenPowerups[powerup] = true
 			}
 		}
 	}
 
-	return powerups
+	return sg.powerupBuffer
 }
 
 // GetNearbyAsteroids returns all asteroids near a position
+// NOTE: Returns a slice backed by an internal buffer - do not store the result
 func (sg *SpatialGrid) GetNearbyAsteroids(x, y, radius float64) []*entities.Asteroid {
 	cells := sg.getCellsInRadius(x, y, radius)
-	asteroids := make([]*entities.Asteroid, 0, 16)
 
-	// Clear and reuse map to avoid allocations
-	for k := range sg.seenAsteroids {
-		delete(sg.seenAsteroids, k)
-	}
+	// Reuse the buffer (clear without deallocating)
+	sg.asteroidBuffer = sg.asteroidBuffer[:0]
+
+	// Clear and reuse map using builtin (more efficient than delete loop)
+	clear(sg.seenAsteroids)
 
 	for _, cell := range cells {
 		for _, asteroid := range sg.asteroidGrid[cell[1]][cell[0]].Asteroids {
 			if !sg.seenAsteroids[asteroid] {
-				asteroids = append(asteroids, asteroid)
+				sg.asteroidBuffer = append(sg.asteroidBuffer, asteroid)
 				sg.seenAsteroids[asteroid] = true
 			}
 		}
 	}
 
-	return asteroids
+	return sg.asteroidBuffer
 }
 
 // PopulateGrid adds all entities to the grid (call once per frame before collision detection)

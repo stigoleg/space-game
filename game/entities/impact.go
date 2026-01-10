@@ -70,3 +70,26 @@ func (i *ImpactEffect) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 	glowColor := color.RGBA{i.Color.R, i.Color.G, i.Color.B, glowAlpha}
 	vector.DrawFilledCircle(screen, x, y, radius, glowColor, true)
 }
+
+// Reset resets the impact effect to default state (for object pooling)
+func (i *ImpactEffect) Reset() {
+	i.X = 0
+	i.Y = 0
+	i.Radius = 2
+	i.MaxRadius = 30
+	i.Life = 0.4
+	i.MaxLife = 0.4
+	i.Color = color.RGBA{100, 200, 255, 255}
+	i.Active = false
+	i.Expanding = true
+}
+
+// IsActive returns whether the impact effect is active
+func (i *ImpactEffect) IsActive() bool {
+	return i.Active
+}
+
+// SetActive sets the active state
+func (i *ImpactEffect) SetActive(active bool) {
+	i.Active = active
+}

@@ -9,7 +9,7 @@ import (
 const (
 	// Version is the current application version
 	// This will be overridden at build time with -ldflags
-	Version = "1.0.6"
+	Version = "1.1.0"
 
 	// GitHub repository info for update checks
 	GitHubOwner = "stigoleg"

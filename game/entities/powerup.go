@@ -53,6 +53,27 @@ func (p *PowerUp) Update() {
 	p.AnimTimer += 0.15 // Increased animation speed
 }
 
+// Reset resets the powerup to default state (for object pooling)
+func (p *PowerUp) Reset() {
+	p.X = 0
+	p.Y = 0
+	p.VelY = 1.5
+	p.Radius = 15
+	p.Type = PowerUpHealth
+	p.Active = false
+	p.AnimTimer = 0
+}
+
+// IsActive returns whether the powerup is active
+func (p *PowerUp) IsActive() bool {
+	return p.Active
+}
+
+// SetActive sets the active state
+func (p *PowerUp) SetActive(active bool) {
+	p.Active = active
+}
+
 func (p *PowerUp) Draw(screen *ebiten.Image, shakeX, shakeY float64, sprite *ebiten.Image, sparkleSprites []*ebiten.Image) {
 	// Simple screen coordinates with shake
 	x := float32(p.X + shakeX)

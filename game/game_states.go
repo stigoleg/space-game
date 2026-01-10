@@ -46,7 +46,16 @@ func (h *GameStateHandler) Enter(prevState states.StateType) {
 
 // Exit is called when leaving this state
 func (h *GameStateHandler) Exit(nextState states.StateType) {
-	// State-specific exit logic can be added here
+	switch h.stateType {
+	case states.TypeGameOver:
+		// When leaving game over (returning to menu), return all pooled entities
+		if nextState == states.TypeMenu {
+			h.game.cleanupGameEntities()
+		}
+	case states.TypePlaying:
+		// When leaving playing state (to pause or game over), no cleanup needed
+		// Entities should remain for the game over screen or pause resume
+	}
 }
 
 // Update updates the state

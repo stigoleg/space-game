@@ -54,21 +54,46 @@ type SoundModulator struct {
 
 // SoundManager handles procedural sound effects with real-time generation
 type SoundManager struct {
-	enabled      bool
-	volume       float64
-	audioContext *audio.Context
-	players      []*audio.Player
-	mutex        sync.Mutex
+	enabled        bool
+	volume         float64
+	audioContext   *audio.Context
+	players        []*audio.Player
+	mutex          sync.Mutex
+	lastPlayTime   map[SoundType]time.Time     // Per-sound-type throttling
+	soundCooldowns map[SoundType]time.Duration // Cooldown per sound type
 }
+
+// MaxConcurrentSounds limits the number of simultaneous sounds to prevent goroutine explosion
+const MaxConcurrentSounds = 16
 
 // NewSoundManager creates a new sound manager
 func NewSoundManager() (*SoundManager, error) {
 	ctx := audio.NewContext(44100) // 44.1kHz sample rate
+
+	// Per-sound-type cooldowns to prevent audio spam during intense gameplay
+	cooldowns := map[SoundType]time.Duration{
+		SoundPlayerShoot:     50 * time.Millisecond,
+		SoundEnemyShoot:      80 * time.Millisecond,
+		SoundExplosionSmall:  100 * time.Millisecond,
+		SoundExplosionMedium: 100 * time.Millisecond,
+		SoundExplosionLarge:  120 * time.Millisecond,
+		SoundExplosion:       100 * time.Millisecond,
+		SoundHit:             50 * time.Millisecond,
+		SoundHitPlayer:       200 * time.Millisecond,
+		SoundHitAsteroid:     100 * time.Millisecond,
+		SoundPowerUp:         100 * time.Millisecond,
+		SoundPowerUpCollect:  100 * time.Millisecond,
+		SoundBossAttack:      150 * time.Millisecond,
+		SoundBossSpecial:     200 * time.Millisecond,
+	}
+
 	return &SoundManager{
-		enabled:      true,
-		volume:       0.5,
-		audioContext: ctx,
-		players:      make([]*audio.Player, 0),
+		enabled:        true,
+		volume:         0.5,
+		audioContext:   ctx,
+		players:        make([]*audio.Player, 0),
+		lastPlayTime:   make(map[SoundType]time.Time),
+		soundCooldowns: cooldowns,
 	}, nil
 }
 
@@ -77,6 +102,25 @@ func (sm *SoundManager) PlaySound(soundType SoundType) {
 	if !sm.enabled {
 		return
 	}
+
+	sm.mutex.Lock()
+	// Limit concurrent sounds to prevent goroutine explosion during intense gameplay
+	if len(sm.players) >= MaxConcurrentSounds {
+		sm.mutex.Unlock()
+		return
+	}
+
+	// Per-sound-type throttling: skip if played too recently
+	if cooldown, hasCooldown := sm.soundCooldowns[soundType]; hasCooldown {
+		if lastTime, exists := sm.lastPlayTime[soundType]; exists {
+			if time.Since(lastTime) < cooldown {
+				sm.mutex.Unlock()
+				return
+			}
+		}
+	}
+	sm.lastPlayTime[soundType] = time.Now()
+	sm.mutex.Unlock()
 
 	sound := sm.createSound(soundType)
 	if sound != nil {

@@ -41,12 +41,13 @@ func NewExplosion(x, y, size float64) *Explosion {
 }
 
 func NewExplosionWithType(x, y, size float64, expType ExplosionType) *Explosion {
-	numParticles := int(size * 2)
-	if numParticles < 10 {
-		numParticles = 10
+	// Optimized: Reduced particle count for better performance
+	numParticles := int(size * 1.2) // Reduced from size * 2
+	if numParticles < 6 {           // Reduced from 10
+		numParticles = 6
 	}
-	if numParticles > 80 {
-		numParticles = 80
+	if numParticles > 40 { // Reduced from 80
+		numParticles = 40
 	}
 
 	particles := make([]Particle, numParticles)
@@ -135,9 +136,24 @@ func (e *Explosion) Update() {
 	}
 }
 
+// Screen bounds for particle culling (matches game.go constants)
+const (
+	explosionScreenWidth  = 1280
+	explosionScreenHeight = 960
+	explosionCullBuffer   = 50 // Extra margin for particles with glow
+)
+
 func (e *Explosion) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 	for _, p := range e.Particles {
 		if p.Life <= 0 {
+			continue
+		}
+
+		// Early culling: skip particles outside screen bounds
+		px := p.X + shakeX
+		py := p.Y + shakeY
+		if px < -explosionCullBuffer || px > explosionScreenWidth+explosionCullBuffer ||
+			py < -explosionCullBuffer || py > explosionScreenHeight+explosionCullBuffer {
 			continue
 		}
 
@@ -145,40 +161,35 @@ func (e *Explosion) Draw(screen *ebiten.Image, shakeX, shakeY float64) {
 		alpha := uint8(255 * lifeRatio)
 		c := color.RGBA{p.Color.R, p.Color.G, p.Color.B, alpha}
 
-		x := float32(p.X + shakeX)
-		y := float32(p.Y + shakeY)
+		x := float32(px)
+		y := float32(py)
 		size := float32(p.Size)
 
-		// Different glow effects based on explosion type
+		// Optimized: Reduced glow complexity - single glow layer only
 		var glowSize float32
-		var glowColor color.RGBA
+		var glowAlpha uint8
 
 		switch e.ExpType {
 		case ExplosionBlast:
-			glowSize = size * 2.0
-			glowColor = color.RGBA{p.Color.R, p.Color.G, p.Color.B, alpha / 2}
+			glowSize = size * 1.8
+			glowAlpha = alpha / 2
 		case ExplosionSmoke:
 			glowSize = size * 1.2
-			glowColor = color.RGBA{p.Color.R, p.Color.G, p.Color.B, alpha / 4}
+			glowAlpha = alpha / 4
 		case ExplosionEnergy:
-			glowSize = size * 2.5
-			glowColor = color.RGBA{p.Color.R, p.Color.G, 255, alpha / 2}
+			glowSize = size * 2.0
+			glowAlpha = alpha / 2
 		default:
-			glowSize = size * 1.5
-			glowColor = color.RGBA{p.Color.R, p.Color.G, p.Color.B, alpha / 3}
+			glowSize = size * 1.4
+			glowAlpha = alpha / 3
 		}
 
-		// Draw glow
+		// Draw glow (combined effect with particle)
+		glowColor := color.RGBA{p.Color.R, p.Color.G, p.Color.B, glowAlpha}
 		vector.DrawFilledCircle(screen, x, y, glowSize, glowColor, true)
 
 		// Draw particle core
 		vector.DrawFilledCircle(screen, x, y, size, c, true)
-
-		// Add bright center for more impact
-		if lifeRatio > 0.3 {
-			brightAlpha := uint8(100 * lifeRatio)
-			vector.DrawFilledCircle(screen, x, y, size*0.5, color.RGBA{255, 255, 255, brightAlpha}, true)
-		}
 	}
 }
 
