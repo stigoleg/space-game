@@ -333,7 +333,9 @@ jobs:
           echo "" >> ../checksums.txt
           echo "Verify your download integrity:" >> ../checksums.txt
           echo '```' >> ../checksums.txt
-          find . -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.zip" \) -exec sh -c 'sha256sum "$1" | sed "s|\./||" | sed "s|.*/| |"' _ {} \; >> ../checksums.txt
+          find . -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.zip" \) | while read file; do
+            sha256sum "$file" | sed 's|./[^/]*/||'
+          done | sort -k2 >> ../checksums.txt
           echo '```' >> ../checksums.txt
           cd ..
           echo ""
