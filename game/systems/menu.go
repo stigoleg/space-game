@@ -1,6 +1,7 @@
 package systems
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 
@@ -17,6 +18,14 @@ type Menu struct {
 	animTimer            float64
 	SoundEnabled         bool           // Track sound toggle state
 	spriteManager        *SpriteManager // For info menu sprites
+
+	// Update banner fields
+	updateStatus     UpdateStatus
+	updateVersion    string
+	downloadProgress float64
+	showUpdateBanner bool
+	bannerPulse      float64
+	updateManager    *UpdateManager // Reference to call InstallUpdate()
 }
 
 func NewMenu(spriteManager *SpriteManager) *Menu {
@@ -47,7 +56,39 @@ func (m *Menu) ShowInfo() {
 	m.showLeaderboard = false
 }
 
+// SetUpdateManager sets the update manager reference for the menu
+func (m *Menu) SetUpdateManager(updateManager *UpdateManager) {
+	m.updateManager = updateManager
+}
+
+// SetUpdateStatus updates the menu with the current update status
+func (m *Menu) SetUpdateStatus(status UpdateStatus, version string, progress float64) {
+	m.updateStatus = status
+	m.updateVersion = version
+	m.downloadProgress = progress
+
+	// Show banner when update is ready or downloading
+	if status == UpdateStatusReady || status == UpdateStatusDownloading {
+		m.showUpdateBanner = true
+	}
+}
+
 func (m *Menu) Update() {
+	// Update banner pulse animation
+	m.bannerPulse += 0.05
+
+	// Handle update banner click
+	if m.showUpdateBanner && m.updateStatus == UpdateStatusReady {
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			_, my := ebiten.CursorPosition()
+			// Banner is at top of screen, 60 pixels tall
+			if my < 60 && m.updateManager != nil {
+				m.updateManager.InstallUpdate()
+				return
+			}
+		}
+	}
+
 	// Update info menu if active
 	if m.InfoMenu.IsActive() {
 		m.InfoMenu.Update()
@@ -136,6 +177,59 @@ func (m *Menu) Draw(screen *ebiten.Image, leaderboard *Leaderboard, screenWidth,
 
 	// Decorative elements
 	m.drawDecorations(screen, screenWidth, screenHeight)
+
+	// Draw update banner last (on top of everything)
+	m.DrawUpdateBanner(screen, screenWidth, screenHeight)
+}
+
+// DrawUpdateBanner draws the update notification banner at the top of the screen
+func (m *Menu) DrawUpdateBanner(screen *ebiten.Image, width, height int) {
+	if !m.showUpdateBanner {
+		return
+	}
+
+	bannerHeight := float32(60)
+
+	// Determine banner color and text based on status
+	var bannerColor color.RGBA
+	var text string
+
+	switch m.updateStatus {
+	case UpdateStatusChecking:
+		bannerColor = color.RGBA{100, 150, 200, 200}
+		text = "Checking for updates..."
+	case UpdateStatusDownloading:
+		// Pulsing blue during download
+		alpha := uint8(180 + 50*math.Sin(m.bannerPulse))
+		bannerColor = color.RGBA{80, 120, 255, alpha}
+		text = fmt.Sprintf("Downloading update %.0f%%...", m.downloadProgress*100)
+	case UpdateStatusReady:
+		// Pulsing green when ready
+		alpha := uint8(180 + 50*math.Sin(m.bannerPulse))
+		bannerColor = color.RGBA{80, 255, 80, alpha}
+		text = fmt.Sprintf("Update Available: %s - Click here to restart and install", m.updateVersion)
+	case UpdateStatusError:
+		bannerColor = color.RGBA{255, 100, 100, 150}
+		text = "Update check failed"
+	default:
+		return
+	}
+
+	// Draw banner background
+	vector.DrawFilledRect(screen, 0, 0, float32(width), bannerHeight, bannerColor, true)
+
+	// Draw border at bottom of banner
+	borderColor := color.RGBA{bannerColor.R / 2, bannerColor.G / 2, bannerColor.B / 2, 255}
+	vector.StrokeLine(screen, 0, bannerHeight, float32(width), bannerHeight, 2, borderColor, true)
+
+	// Draw text centered in banner
+	textY := int(bannerHeight / 2)
+	textColor := color.RGBA{255, 255, 255, 255}
+	if m.updateStatus == UpdateStatusReady {
+		// Add extra emphasis for ready state
+		textColor = color.RGBA{0, 0, 0, 255}
+	}
+	DrawTextCentered(screen, text, width/2, textY, 1.5, textColor)
 }
 
 func (m *Menu) drawDecorations(screen *ebiten.Image, width, height int) {

@@ -113,6 +113,9 @@ type Game struct {
 	submitScorePrompt bool                  // Whether to prompt user to submit score
 	scoreSubmitted    bool                  // Whether score was submitted this session
 	onlineScores      []systems.OnlineScore // Cached online scores
+
+	// Auto-updater
+	updateManager *systems.UpdateManager
 }
 
 func NewGame() *Game {
@@ -205,6 +208,18 @@ func NewGame() *Game {
 		}()
 	}
 
+	// Initialize auto-updater
+	g.updateManager = systems.NewUpdateManager(Version, GitHubOwner, GitHubRepo)
+
+	// Connect update manager to menu
+	g.menu.SetUpdateManager(g.updateManager)
+
+	// Start background update check after a short delay (non-blocking)
+	go func() {
+		time.Sleep(2 * time.Second) // Wait 2s after startup
+		g.updateManager.CheckForUpdatesAsync()
+	}()
+
 	// Initialize state machine
 	g.initializeStateMachine()
 
@@ -282,6 +297,17 @@ func (g *Game) Update() error {
 
 	// Update starfield always (visual effect)
 	g.stars.Update()
+
+	// Poll update manager status (non-blocking)
+	if g.updateManager != nil {
+		select {
+		case status := <-g.updateManager.GetStatusChannel():
+			// Update status received, notify menu
+			g.menu.SetUpdateStatus(status, g.updateManager.GetLatestVersion(), g.updateManager.GetDownloadProgress())
+		default:
+			// No update, continue normally
+		}
+	}
 
 	// Use state machine if initialized, otherwise fall back to manual state handling
 	if g.stateMachine != nil {
